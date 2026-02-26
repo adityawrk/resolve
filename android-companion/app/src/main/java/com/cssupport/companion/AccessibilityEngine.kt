@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -321,6 +322,169 @@ class AccessibilityEngine(private val service: AccessibilityService) {
         }
     }
 
+    // ── Index-based actions (for numbered element references) ─────────────
+
+    /**
+     * Click an element by its numeric index from the current [ScreenState.elementIndex].
+     *
+     * This is the preferred action method -- the LLM references elements by [N] number
+     * from the screen representation, and this resolves to the exact node on screen.
+     *
+     * @param index 1-based element index from ScreenState.elementIndex
+     * @param screenState the ScreenState whose elementIndex was shown to the LLM
+     * @return true if click succeeded
+     */
+    fun clickByIndex(index: Int, screenState: ScreenState): Boolean {
+        val targetElement = screenState.getElementById(index)
+        if (targetElement == null) {
+            Log.w(tag, "clickByIndex: no element at index $index")
+            return false
+        }
+
+        // Use the element's bounds to find the matching live node and click it.
+        // The UIElement was created from an already-recycled node, so we find a fresh one
+        // by searching for text/contentDescription match within similar bounds.
+        val label = targetElement.text ?: targetElement.contentDescription
+        if (label != null) {
+            val node = findNodeByText(label)
+            if (node != null) {
+                return try {
+                    clickNode(node)
+                } finally {
+                    safeRecycle(node)
+                }
+            }
+        }
+
+        // Fallback: tap at the center of the stored bounds.
+        return tapAt(
+            targetElement.bounds.centerX().toFloat(),
+            targetElement.bounds.centerY().toFloat(),
+        )
+    }
+
+    /**
+     * Set text on an element referenced by its numeric index.
+     *
+     * @param index 1-based element index from ScreenState.elementIndex
+     * @param text the text to type
+     * @param screenState the ScreenState whose elementIndex was shown to the LLM
+     * @return true if text was set successfully
+     */
+    fun setTextByIndex(index: Int, text: String, screenState: ScreenState): Boolean {
+        val targetElement = screenState.getElementById(index)
+        if (targetElement == null) {
+            Log.w(tag, "setTextByIndex: no element at index $index")
+            return false
+        }
+        if (!targetElement.isEditable) {
+            Log.w(tag, "setTextByIndex: element $index is not editable")
+            return false
+        }
+
+        // Find a live editable node near the target bounds.
+        val fields = findInputFields()
+        if (fields.isEmpty()) {
+            Log.w(tag, "setTextByIndex: no input fields on screen")
+            return false
+        }
+
+        // Find the input field closest to the indexed element's center.
+        val targetCx = targetElement.bounds.centerX()
+        val targetCy = targetElement.bounds.centerY()
+        val closest = fields.minByOrNull { field ->
+            val bounds = Rect()
+            field.getBoundsInScreen(bounds)
+            val dx = bounds.centerX() - targetCx
+            val dy = bounds.centerY() - targetCy
+            dx * dx + dy * dy
+        }
+
+        return try {
+            if (closest != null) setText(closest, text) else false
+        } finally {
+            fields.forEach { safeRecycle(it) }
+        }
+    }
+
+    /**
+     * Read back the current text content of an input field by index.
+     * Used for post-action verification of text input.
+     */
+    fun readFieldTextByIndex(index: Int, screenState: ScreenState): String? {
+        val targetElement = screenState.getElementById(index)
+            ?: return null
+        if (!targetElement.isEditable) return null
+
+        val fields = findInputFields()
+        if (fields.isEmpty()) return null
+
+        val targetCx = targetElement.bounds.centerX()
+        val targetCy = targetElement.bounds.centerY()
+        val closest = fields.minByOrNull { field ->
+            val bounds = Rect()
+            field.getBoundsInScreen(bounds)
+            val dx = bounds.centerX() - targetCx
+            val dy = bounds.centerY() - targetCy
+            dx * dx + dy * dy
+        }
+
+        val result = closest?.text?.toString()
+        fields.forEach { safeRecycle(it) }
+        return result
+    }
+
+    /**
+     * Read back the text of the first input field on screen.
+     * Used for post-action verification when no specific index is available.
+     */
+    fun readFirstFieldText(): String? {
+        val fields = findInputFields()
+        if (fields.isEmpty()) return null
+        val text = fields.first().text?.toString()
+        fields.forEach { safeRecycle(it) }
+        return text
+    }
+
+    // ── Screen stabilization ────────────────────────────────────────────────
+
+    /**
+     * Wait until the screen content stabilizes (stops changing).
+     *
+     * Technique from DroidRun: poll-compare-repeat until two consecutive captures
+     * produce the same fingerprint, meaning the screen has finished loading/animating.
+     *
+     * @param maxWaitMs maximum time to wait for stabilization
+     * @param pollIntervalMs time between captures
+     * @return the stable [ScreenState], or the last captured state on timeout
+     */
+    suspend fun waitForStableScreen(
+        maxWaitMs: Long = 5000,
+        pollIntervalMs: Long = 500,
+    ): ScreenState {
+        // Initial wait to let animations/transitions begin.
+        delay(pollIntervalMs)
+
+        var previousFingerprint = ""
+        var lastState = captureScreenState()
+        val deadline = System.currentTimeMillis() + maxWaitMs
+
+        while (System.currentTimeMillis() < deadline) {
+            val currentFingerprint = lastState.fingerprint()
+            if (currentFingerprint == previousFingerprint && previousFingerprint.isNotEmpty()) {
+                // Two consecutive captures are identical -- screen is stable.
+                Log.d(tag, "Screen stabilized after ${maxWaitMs - (deadline - System.currentTimeMillis())}ms")
+                return lastState
+            }
+            previousFingerprint = currentFingerprint
+            delay(pollIntervalMs)
+            lastState = captureScreenState()
+        }
+
+        Log.d(tag, "Screen stabilization timed out after ${maxWaitMs}ms")
+        return lastState
+    }
+
     // ── Actions ─────────────────────────────────────────────────────────────
 
     /**
@@ -626,17 +790,108 @@ data class ScreenState(
     val timestamp: Long,
 ) {
     /**
+     * Indexed element map: maps numeric IDs (1-based) to UIElements.
+     * Built lazily on first access by [buildElementIndex]. Every interactive or
+     * informational element gets a stable numeric ID for the current screen capture,
+     * allowing the LLM to reference elements by number instead of by text label.
+     *
+     * IDs reset with each new screen capture -- they are per-turn, not persistent.
+     */
+    val elementIndex: Map<Int, UIElement> by lazy { buildElementIndex() }
+
+    /**
+     * Build the element index, assigning 1-based IDs to all meaningful elements.
+     * Elements are ordered: top-bar left-to-right, then content top-to-bottom,
+     * then bottom-bar left-to-right.
+     */
+    private fun buildElementIndex(): Map<Int, UIElement> {
+        val screenWidth = elements.maxOfOrNull { it.bounds.right } ?: 1080
+        val screenHeight = elements.maxOfOrNull { it.bounds.bottom } ?: 2400
+
+        val meaningful = filterMeaningful(screenWidth, screenHeight)
+        val deduped = deduplicateElements(meaningful)
+
+        val topBarThreshold = screenHeight / 8
+        val bottomBarThreshold = screenHeight * 7 / 8
+
+        val topBar = deduped.filter { it.bounds.centerY() < topBarThreshold }
+            .sortedBy { it.bounds.centerX() }
+        val content = deduped.filter {
+            it.bounds.centerY() in topBarThreshold..bottomBarThreshold
+        }.sortedBy { it.bounds.centerY() }
+        val bottomBar = deduped.filter { it.bounds.centerY() > bottomBarThreshold }
+            .sortedBy { it.bounds.centerX() }
+
+        val ordered = topBar + content + bottomBar
+        val map = mutableMapOf<Int, UIElement>()
+        ordered.forEachIndexed { idx, el ->
+            map[idx + 1] = el
+        }
+        return map
+    }
+
+    /**
+     * Look up an element by its numeric index.
+     * Returns null if the index is out of range.
+     */
+    fun getElementById(index: Int): UIElement? = elementIndex[index]
+
+    /**
+     * Get a concise summary of this screen state for observation masking.
+     * Used to replace verbose screen dumps in older conversation turns.
+     */
+    fun toMaskedSummary(phase: String): String {
+        val simpleName = activityName?.substringAfterLast(".") ?: "unknown"
+        val interactiveCount = elements.count { it.isClickable || it.isEditable }
+        return "[Screen: $packageName/$simpleName, ${elements.size} elements ($interactiveCount interactive), phase: $phase]"
+    }
+
+    /**
+     * Get the labels of all elements that are present in this screen but not in [other].
+     * Used for differential state tracking.
+     */
+    fun newElementLabels(other: ScreenState?): List<String> {
+        if (other == null) return emptyList()
+        val otherLabels = other.elements.mapNotNull { el ->
+            (el.text ?: el.contentDescription)?.take(40)
+        }.toSet()
+        return elements.mapNotNull { el ->
+            val label = (el.text ?: el.contentDescription)?.take(40) ?: return@mapNotNull null
+            if (label !in otherLabels) label else null
+        }.take(10)
+    }
+
+    /**
+     * Get the labels of elements present in [other] but missing from this screen.
+     */
+    fun removedElementLabels(other: ScreenState?): List<String> {
+        if (other == null) return emptyList()
+        val currentLabels = elements.mapNotNull { el ->
+            (el.text ?: el.contentDescription)?.take(40)
+        }.toSet()
+        return other.elements.mapNotNull { el ->
+            val label = (el.text ?: el.contentDescription)?.take(40) ?: return@mapNotNull null
+            if (label !in currentLabels) label else null
+        }.take(10)
+    }
+
+    /**
      * Format the screen state as a spatially-aware, semantically grouped description for the LLM.
      *
-     * Improvements over the original flat dump:
-     * 1. Spatial zones (top-bar, content, bottom-bar) so the LLM understands layout
-     * 2. Semantic element types (navigation, button, text, input) for faster parsing
-     * 3. Deduplication and noise filtering (decorative views, tiny invisible elements)
-     * 4. Position hints for ambiguous elements (top-right, bottom-center)
-     * 5. Content descriptions included alongside text for icon-only buttons
+     * Uses numbered element references ([N]) for every element so the LLM can
+     * unambiguously reference elements by index instead of by text label.
+     *
+     * Improvements:
+     * 1. Numbered element IDs for unambiguous action grounding
+     * 2. Spatial zones (top-bar, content, bottom-bar)
+     * 3. Semantic element types + selected/checked state display
+     * 4. Position hints for ambiguous elements
+     * 5. Scroll extent hints
      * 6. Compact format to minimize token usage
+     *
+     * @param previousScreen optional previous screen for marking new elements
      */
-    fun formatForLLM(): String {
+    fun formatForLLM(previousScreen: ScreenState? = null): String {
         val sb = StringBuilder()
         sb.appendLine("Package: $packageName")
         if (activityName != null) {
@@ -646,12 +901,171 @@ data class ScreenState(
             }
         }
 
-        // Screen dimensions heuristic: use the max bounds to estimate screen size.
         val screenWidth = elements.maxOfOrNull { it.bounds.right } ?: 1080
         val screenHeight = elements.maxOfOrNull { it.bounds.bottom } ?: 2400
 
-        // Filter out noise: invisible, zero-size, or purely decorative elements.
-        val meaningful = elements.filter { el ->
+        // Access the element index (builds it on first call).
+        val indexedElements = elementIndex
+        if (indexedElements.isEmpty()) {
+            sb.appendLine("(empty screen -- no elements)")
+            return sb.toString()
+        }
+
+        // Reverse map: UIElement -> index.
+        val elementToId = indexedElements.entries.associate { (id, el) -> el to id }
+
+        // Previous element labels for marking new elements.
+        val prevLabels = previousScreen?.elements?.mapNotNull { el ->
+            (el.text ?: el.contentDescription)?.take(40)
+        }?.toSet()
+
+        // Partition indexed elements into zones.
+        val topBarThreshold = screenHeight / 8
+        val bottomBarThreshold = screenHeight * 7 / 8
+
+        val topBarEntries = indexedElements.filter { (_, el) ->
+            el.bounds.centerY() < topBarThreshold
+        }.toSortedMap()
+        val contentEntries = indexedElements.filter { (_, el) ->
+            el.bounds.centerY() in topBarThreshold..bottomBarThreshold
+        }.toSortedMap()
+        val bottomBarEntries = indexedElements.filter { (_, el) ->
+            el.bounds.centerY() > bottomBarThreshold
+        }.toSortedMap()
+
+        // Screen pattern.
+        val allElements = indexedElements.values.toList()
+        val screenPattern = detectScreenPattern(allElements)
+        if (screenPattern.isNotBlank()) {
+            sb.appendLine("Layout: $screenPattern")
+        }
+        sb.appendLine()
+
+        // Top bar.
+        if (topBarEntries.isNotEmpty()) {
+            sb.appendLine("[TOP BAR]")
+            formatIndexedElements(topBarEntries, sb, screenWidth, prevLabels)
+            sb.appendLine()
+        }
+
+        // Content.
+        if (contentEntries.isNotEmpty()) {
+            sb.appendLine("[CONTENT]")
+
+            // Cap text-only items to prevent token explosion.
+            var textCount = 0
+            val maxTextItems = 25
+
+            for ((id, el) in contentEntries) {
+                val isTextOnly = !el.isClickable && !el.isEditable && !el.isScrollable
+                if (isTextOnly) {
+                    textCount++
+                    if (textCount > maxTextItems) continue
+                }
+                val line = formatSingleElement(id, el, screenWidth, prevLabels)
+                sb.appendLine("  $line")
+            }
+            if (textCount > maxTextItems) {
+                sb.appendLine("  (${textCount - maxTextItems} more text items hidden)")
+            }
+
+            // Scroll extent hints.
+            val scrollables = contentEntries.values.filter { it.isScrollable }
+            if (scrollables.isNotEmpty()) {
+                sb.appendLine("  (${scrollables.size} scrollable area${if (scrollables.size > 1) "s" else ""}, can scroll down)")
+            }
+            sb.appendLine()
+        }
+
+        // Bottom bar.
+        if (bottomBarEntries.isNotEmpty()) {
+            sb.appendLine("[BOTTOM BAR]")
+            formatIndexedElements(bottomBarEntries, sb, screenWidth, prevLabels)
+            sb.appendLine()
+        }
+
+        if (focusedElement != null) {
+            val label = focusedElement.text ?: focusedElement.contentDescription ?: focusedElement.className
+            val focusId = elementToId[focusedElement]
+            sb.appendLine("Focused: ${if (focusId != null) "[$focusId] " else ""}$label")
+        }
+
+        return sb.toString()
+    }
+
+    /**
+     * Format a single element with its numeric ID, type hint, label, position, and state.
+     */
+    private fun formatSingleElement(
+        id: Int,
+        el: UIElement,
+        screenWidth: Int,
+        prevLabels: Set<String>?,
+    ): String {
+        val sb = StringBuilder()
+        sb.append("[$id] ")
+
+        // Type hint.
+        val typeHint = when {
+            el.isEditable -> "INPUT"
+            el.isScrollable -> "scrollable"
+            el.isClickable -> buttonTypeHint(el)
+            else -> "text"
+        }
+        sb.append("$typeHint: ")
+
+        // Label.
+        val label = el.text ?: el.contentDescription ?: "unlabeled"
+        val truncated = if (label.length > 120) label.take(117) + "..." else label
+        sb.append("\"$truncated\"")
+
+        // Position hint.
+        sb.append(positionHint(el.bounds, screenWidth))
+
+        // State annotations.
+        if (el.isCheckable && el.isChecked == true) sb.append(" [CHECKED]")
+        if (el.isCheckable && el.isChecked == false) sb.append(" [UNCHECKED]")
+        if (el.isClickable && !el.isEnabled) sb.append(" [DISABLED]")
+
+        // Selected state for tabs.
+        val className = el.className.lowercase()
+        if (className.contains("tab") && el.isChecked == true) {
+            // Already handled by CHECKED above, but remap label.
+            sb.append(" [SELECTED]")
+        }
+
+        // NEW marker for elements not on previous screen.
+        if (prevLabels != null) {
+            val elLabel = (el.text ?: el.contentDescription)?.take(40)
+            if (elLabel != null && elLabel !in prevLabels) {
+                sb.append(" <-- NEW")
+            }
+        }
+
+        return sb.toString()
+    }
+
+    /**
+     * Format a zone of indexed elements.
+     */
+    private fun formatIndexedElements(
+        entries: Map<Int, UIElement>,
+        sb: StringBuilder,
+        screenWidth: Int,
+        prevLabels: Set<String>?,
+    ) {
+        for ((id, el) in entries) {
+            val label = el.text ?: el.contentDescription
+            if (label.isNullOrBlank()) continue
+            val line = formatSingleElement(id, el, screenWidth, prevLabels)
+            sb.appendLine("  $line")
+        }
+    }
+
+    // ── Filtering helpers ───────────────────────────────────────────────────
+
+    private fun filterMeaningful(screenWidth: Int, screenHeight: Int): List<UIElement> {
+        return elements.filter { el ->
             val hasContent = !el.text.isNullOrBlank()
                 || !el.contentDescription.isNullOrBlank()
                 || el.isClickable || el.isEditable || el.isScrollable || el.isCheckable
@@ -660,105 +1074,14 @@ data class ScreenState(
                 && el.bounds.left < screenWidth && el.bounds.top < screenHeight
             hasContent && hasSize && isOnScreen
         }
+    }
 
-        // Deduplicate elements with same text at same position (common in complex UIs).
-        val deduped = meaningful.distinctBy { el ->
+    private fun deduplicateElements(elements: List<UIElement>): List<UIElement> {
+        return elements.distinctBy { el ->
             val label = el.text ?: el.contentDescription ?: ""
             val posKey = "${el.bounds.centerX() / 20},${el.bounds.centerY() / 20}"
             "$label|$posKey|${el.isClickable}|${el.isEditable}"
         }
-
-        // Partition into spatial zones for layout awareness.
-        val topBarThreshold = screenHeight / 8        // ~top 12.5%
-        val bottomBarThreshold = screenHeight * 7 / 8  // ~bottom 12.5%
-
-        val topBarElements = deduped.filter { it.bounds.centerY() < topBarThreshold }
-        val bottomBarElements = deduped.filter { it.bounds.centerY() > bottomBarThreshold }
-        val contentElements = deduped.filter {
-            it.bounds.centerY() in topBarThreshold..bottomBarThreshold
-        }
-
-        // Detect common screen patterns to give the LLM a high-level hint.
-        val screenPattern = detectScreenPattern(deduped)
-        if (screenPattern.isNotBlank()) {
-            sb.appendLine("Layout: $screenPattern")
-        }
-        sb.appendLine()
-
-        // Format top bar (navigation, title, action buttons).
-        if (topBarElements.isNotEmpty()) {
-            sb.appendLine("[TOP BAR]")
-            formatElementsCompact(topBarElements, sb, screenWidth)
-            sb.appendLine()
-        }
-
-        // Format main content area, grouped by type.
-        if (contentElements.isNotEmpty()) {
-            val inputFields = contentElements.filter { it.isEditable }
-            val buttons = contentElements.filter {
-                it.isClickable && it.isEnabled && !it.isEditable
-                    && (it.text?.isNotBlank() == true || it.contentDescription?.isNotBlank() == true)
-            }
-            val textItems = contentElements.filter {
-                !it.isClickable && !it.isEditable
-                    && (it.text?.isNotBlank() == true || it.contentDescription?.isNotBlank() == true)
-            }
-            val scrollables = contentElements.filter { it.isScrollable }
-
-            sb.appendLine("[CONTENT]")
-
-            if (textItems.isNotEmpty()) {
-                // Limit text to the most recent/relevant (bottom of list is typically newest in chats).
-                val textToShow = if (textItems.size > 25) {
-                    sb.appendLine("(${textItems.size} text items, showing last 25)")
-                    textItems.takeLast(25)
-                } else {
-                    textItems
-                }
-                for (el in textToShow) {
-                    val label = el.text ?: el.contentDescription ?: continue
-                    // Truncate very long text to save tokens.
-                    val truncated = if (label.length > 150) label.take(147) + "..." else label
-                    sb.appendLine("  text: $truncated")
-                }
-            }
-
-            if (buttons.isNotEmpty()) {
-                for (btn in buttons.take(30)) {
-                    val label = btn.text ?: btn.contentDescription ?: "unlabeled"
-                    val posHint = positionHint(btn.bounds, screenWidth)
-                    val typeHint = buttonTypeHint(btn)
-                    sb.appendLine("  $typeHint: \"$label\"$posHint")
-                }
-            }
-
-            if (inputFields.isNotEmpty()) {
-                for (field in inputFields) {
-                    val hint = field.contentDescription ?: field.text ?: "empty"
-                    sb.appendLine("  INPUT: \"$hint\"")
-                }
-            }
-
-            if (scrollables.isNotEmpty()) {
-                sb.appendLine("  (${scrollables.size} scrollable area${if (scrollables.size > 1) "s" else ""})")
-            }
-
-            sb.appendLine()
-        }
-
-        // Format bottom bar (tab navigation).
-        if (bottomBarElements.isNotEmpty()) {
-            sb.appendLine("[BOTTOM BAR]")
-            formatElementsCompact(bottomBarElements, sb, screenWidth)
-            sb.appendLine()
-        }
-
-        if (focusedElement != null) {
-            val label = focusedElement.text ?: focusedElement.contentDescription ?: focusedElement.className
-            sb.appendLine("Focused: $label")
-        }
-
-        return sb.toString()
     }
 
     /**
@@ -808,25 +1131,6 @@ data class ScreenState(
         }
 
         return ""
-    }
-
-    /**
-     * Format elements compactly with position hints, suitable for navigation bars.
-     */
-    private fun formatElementsCompact(elements: List<UIElement>, sb: StringBuilder, screenWidth: Int) {
-        // Sort left-to-right for horizontal bars.
-        val sorted = elements.sortedBy { it.bounds.centerX() }
-        for (el in sorted.take(15)) {
-            val label = el.text ?: el.contentDescription
-            if (label.isNullOrBlank()) continue
-            val pos = positionHint(el.bounds, screenWidth)
-            val interactivity = when {
-                el.isEditable -> "INPUT"
-                el.isClickable -> "btn"
-                else -> "text"
-            }
-            sb.appendLine("  $interactivity: \"$label\"$pos")
-        }
     }
 
     /**
@@ -883,6 +1187,15 @@ data class ScreenState(
             append(elemSig)
         }
         return sig.hashCode().toString(16)
+    }
+
+    /**
+     * Get a list of all element labels on this screen, for comparison purposes.
+     */
+    fun elementLabels(): Set<String> {
+        return elements.mapNotNull { el ->
+            (el.text ?: el.contentDescription)?.take(40)
+        }.toSet()
     }
 }
 

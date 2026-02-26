@@ -303,26 +303,38 @@ class LLMClient(private val config: LLMConfig) {
         return JSONArray().apply {
             put(toolDef(
                 name = "type_message",
-                description = "Type a message into the active chat/message input field and send it. " +
-                    "ONLY use this when you are in a chat/support interface with a visible input field. " +
+                description = "Type a message into a chat/message input field and send it. " +
+                    "ONLY use this when you are in a chat/support interface with a visible INPUT field. " +
                     "Do NOT use this for search bars or non-chat inputs. " +
+                    "If there are multiple input fields, specify elementId to target the right one. " +
                     "After sending, you should use wait_for_response to wait for a reply.",
-                properties = JSONObject().put("text", JSONObject()
-                    .put("type", "string")
-                    .put("description", "The message to type and send. Speak as the customer in first person.")),
+                properties = JSONObject()
+                    .put("text", JSONObject()
+                        .put("type", "string")
+                        .put("description", "The message to type and send. Speak as the customer in first person."))
+                    .put("elementId", JSONObject()
+                        .put("type", "integer")
+                        .put("description", "The [N] number of the INPUT field to type into (from screen state). Optional -- uses the first input field if not specified.")),
                 required = listOf("text"),
             ))
 
             put(toolDef(
-                name = "click_button",
-                description = "Click a button, link, tab, or any interactive element visible on screen. " +
-                    "The label must match the text or content description shown in the screen state. " +
-                    "Use the EXACT text as shown — partial matches work but exact is preferred. " +
-                    "For icon buttons without text, use the content description (e.g., \"Navigate up\", \"More options\").",
-                properties = JSONObject().put("buttonLabel", JSONObject()
-                    .put("type", "string")
-                    .put("description", "The label text or content description of the element to click, as shown on screen")),
-                required = listOf("buttonLabel"),
+                name = "click_element",
+                description = "Click an interactive element on screen. " +
+                    "ALWAYS prefer using elementId (the [N] number shown in brackets in the screen state). " +
+                    "Fall back to label ONLY if you cannot determine the element number. " +
+                    "For icon buttons without visible text, use the content description shown in the screen state.",
+                properties = JSONObject()
+                    .put("elementId", JSONObject()
+                        .put("type", "integer")
+                        .put("description", "The [N] number of the element to click, from the screen state"))
+                    .put("label", JSONObject()
+                        .put("type", "string")
+                        .put("description", "Fallback: the text label of the element, if elementId is not available"))
+                    .put("expectedOutcome", JSONObject()
+                        .put("type", "string")
+                        .put("description", "What you expect to happen after clicking (e.g., 'Opens order detail page')")),
+                required = listOf("expectedOutcome"),
             ))
 
             put(toolDef(
@@ -467,9 +479,18 @@ class LLMClient(private val config: LLMConfig) {
         return when (name) {
             "type_message" -> AgentAction.TypeMessage(
                 text = input.getString("text"),
+                elementId = if (input.has("elementId")) input.optInt("elementId", -1).takeIf { it > 0 } else null,
             )
-            "click_button" -> AgentAction.ClickButton(
-                buttonLabel = input.getString("buttonLabel"),
+            "click_element" -> AgentAction.ClickElement(
+                elementId = if (input.has("elementId")) input.optInt("elementId", -1).takeIf { it > 0 } else null,
+                label = input.optString("label", "").ifBlank { null },
+                expectedOutcome = input.optString("expectedOutcome", ""),
+            )
+            // Backward compatibility: old tool name still accepted.
+            "click_button" -> AgentAction.ClickElement(
+                elementId = null,
+                label = input.optString("buttonLabel", input.optString("label", "")),
+                expectedOutcome = "",
             )
             "scroll_down" -> AgentAction.ScrollDown(
                 reason = input.optString("reason", ""),
@@ -606,8 +627,25 @@ data class LLMConfig(
 // ── Agent action types ──────────────────────────────────────────────────────
 
 sealed class AgentAction {
-    data class TypeMessage(val text: String) : AgentAction()
-    data class ClickButton(val buttonLabel: String) : AgentAction()
+    data class TypeMessage(
+        val text: String,
+        /** Optional element index of the input field to type into. */
+        val elementId: Int? = null,
+    ) : AgentAction()
+
+    /**
+     * Click an element on screen, identified by numeric index (preferred) or label (fallback).
+     * Replaces the old ClickButton action with unambiguous element referencing.
+     */
+    data class ClickElement(
+        /** The [N] number from the screen state. Preferred -- exact match. */
+        val elementId: Int? = null,
+        /** Fallback text label when elementId is not available. */
+        val label: String? = null,
+        /** What the LLM expects to happen after clicking. Used for post-action verification. */
+        val expectedOutcome: String = "",
+    ) : AgentAction()
+
     data class ScrollDown(val reason: String) : AgentAction()
     data class ScrollUp(val reason: String) : AgentAction()
     data class Wait(val reason: String) : AgentAction()

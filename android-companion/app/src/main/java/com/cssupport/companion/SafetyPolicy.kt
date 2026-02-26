@@ -32,8 +32,10 @@ class SafetyPolicy(
 
         return when (action) {
             is AgentAction.TypeMessage -> validateMessage(action.text)
-            is AgentAction.ClickButton -> {
-                val result = validateClick(action.buttonLabel)
+            is AgentAction.ClickElement -> {
+                // Validate the label if present (for financial/destructive keyword checks).
+                val label = action.label ?: action.expectedOutcome
+                val result = if (label.isNotBlank()) validateClick(label) else PolicyResult.Allowed
                 // Auto-approve safe click actions when the user has opted in.
                 // Message-level blocks (PII, passwords) are never auto-approved.
                 if (result is PolicyResult.NeedsApproval && autoApproveSafeActions) {
