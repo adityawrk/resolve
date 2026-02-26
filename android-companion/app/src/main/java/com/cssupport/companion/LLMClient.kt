@@ -394,8 +394,17 @@ class LLMClient(private val config: LLMConfig) {
             }
 
             if (code !in 200..299) {
-                Log.e(tag, "LLM HTTP $code: ${text.take(500)}")
-                throw LLMException("LLM API returned HTTP $code: ${text.take(200)}")
+                Log.e(tag, "LLM HTTP $code (${config.provider}/${config.model}): ${text.take(800)}")
+                // Include more of the response body so the actual error is visible in logs.
+                val errorDetail = try {
+                    val errJson = JSONObject(text)
+                    errJson.optJSONObject("error")?.optString("message")
+                        ?: errJson.optString("message")
+                        ?: text.take(300)
+                } catch (_: Exception) {
+                    text.take(300)
+                }
+                throw LLMException("HTTP $code: $errorDetail")
             }
 
             JSONObject(text)
@@ -433,7 +442,7 @@ data class LLMConfig(
             )
         }
 
-        fun openAI(apiKey: String, model: String = "gpt-4o"): LLMConfig {
+        fun openAI(apiKey: String, model: String = "gpt-5-mini"): LLMConfig {
             return LLMConfig(
                 provider = LLMProvider.OPENAI,
                 apiKey = apiKey,

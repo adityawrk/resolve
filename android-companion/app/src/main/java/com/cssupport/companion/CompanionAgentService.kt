@@ -176,6 +176,9 @@ class CompanionAgentService : Service() {
             return
         }
 
+        // Auto-migrate deprecated models (4o series retired as of 2026).
+        llmConfig = migrateDeprecatedModel(authManager, llmConfig)
+
         // Step 3b: Refresh OAuth token if needed.
         if (authManager.needsOAuthRefresh()) {
             val refreshed = authManager.refreshOAuthTokenIfNeeded()
@@ -252,6 +255,9 @@ class CompanionAgentService : Service() {
                     AgentLogStore.log("Agent cancelled", LogCategory.STATUS_UPDATE, "Cancelled")
                 }
             }
+            // Bring MonitorActivity to foreground so the customer sees the result
+            // instead of being left staring at the target app.
+            bringMonitorToForeground()
         }
 
         currentAgentJob?.join()
@@ -275,6 +281,41 @@ class CompanionAgentService : Service() {
             delay(500)
         }
         return null
+    }
+
+    /**
+     * Migrate deprecated model names to current equivalents.
+     * The GPT-4o series was retired — upgrade to gpt-5-mini.
+     */
+    private fun migrateDeprecatedModel(authManager: AuthManager, config: LLMConfig): LLMConfig {
+        val deprecated = setOf("gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo")
+        if (config.model in deprecated) {
+            val newModel = "gpt-5-mini"
+            Log.i(tag, "Migrating deprecated model ${config.model} → $newModel")
+            authManager.saveLLMCredentials(
+                provider = config.provider,
+                apiKey = config.apiKey,
+                model = newModel,
+                endpoint = config.endpoint,
+                apiVersion = config.apiVersion,
+            )
+            return config.copy(model = newModel)
+        }
+        return config
+    }
+
+    /**
+     * Bring MonitorActivity to foreground so the customer sees results.
+     */
+    private fun bringMonitorToForeground() {
+        try {
+            val intent = Intent(this, MonitorActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(tag, "Could not bring MonitorActivity to foreground", e)
+        }
     }
 
     private fun tryLaunchApp(packageName: String): Boolean {

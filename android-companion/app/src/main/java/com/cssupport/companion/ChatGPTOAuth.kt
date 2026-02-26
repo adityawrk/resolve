@@ -43,7 +43,7 @@ object ChatGPTOAuth {
     private const val SCOPE = "openid profile email offline_access"
 
     // Default model for ChatGPT OAuth users
-    const val DEFAULT_MODEL = "gpt-4o-mini"
+    const val DEFAULT_MODEL = "gpt-5-mini"
 
     /** Timeout for the localhost callback server (60 seconds). */
     private const val CALLBACK_TIMEOUT_MS = 60_000L

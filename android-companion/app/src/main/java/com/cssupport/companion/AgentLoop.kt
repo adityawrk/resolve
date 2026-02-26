@@ -35,6 +35,8 @@ class AgentLoop(
     val state = _state.asStateFlow()
 
     private val previousActions = mutableListOf<String>()
+    /** Sliding window of recent turns: screen summary + reasoning + action taken. */
+    private val turnHistory = mutableListOf<TurnRecord>()
     private var iterationCount = 0
     private var consecutiveDuplicates = 0
     private var lastActionSignature = ""
@@ -44,6 +46,8 @@ class AgentLoop(
         const val OWN_PACKAGE = "com.cssupport.companion"
         const val MAX_FOREGROUND_WAIT_MS = 60_000L
         const val MAX_CONSECUTIVE_DUPLICATES = 3
+        /** How many previous turns of reasoning to include in the prompt. */
+        const val MAX_TURN_HISTORY = 5
     }
 
     @Volatile
@@ -212,6 +216,19 @@ class AgentLoop(
                 action = describeAction(decision.action),
                 reasoning = decision.reasoning,
             ))
+
+            // Record this turn for context in future iterations.
+            val screenSummary = "${screenState.packageName} — ${screenState.elements.size} elements"
+            turnHistory.add(TurnRecord(
+                iteration = iterationCount,
+                screenSummary = screenSummary,
+                reasoning = decision.reasoning,
+                action = describeAction(decision.action),
+            ))
+            // Keep only the last N turns to avoid unbounded growth.
+            while (turnHistory.size > MAX_TURN_HISTORY) {
+                turnHistory.removeAt(0)
+            }
 
             // Step 3: Validate against safety policy.
             val policyResult = safetyPolicy.validate(decision.action, iterationCount)
@@ -473,14 +490,30 @@ class AgentLoop(
                 appendLine("The customer has provided attachment(s) as evidence. Upload them when relevant.")
                 appendLine()
             }
-            appendLine("## Navigation Strategy")
-            appendLine("You must navigate to the customer support / help / chat section FIRST before composing any messages.")
-            appendLine("Typical navigation path:")
-            appendLine("1. Look for: 'Help', 'Support', 'Customer Service', 'Contact Us', 'Chat', menu icons (≡ or ⋮)")
-            appendLine("2. If on a homepage/main screen, look for account/profile/orders sections that lead to help")
-            appendLine("3. If there's a search bar but no chat, do NOT type your complaint into the search bar")
-            appendLine("4. Find the actual chat/support interface before typing any messages")
-            appendLine("5. Once in the chat interface, compose and send your message")
+            appendLine("## Navigation Strategy — CRITICAL")
+            appendLine("Your FIRST goal is to reach the customer support chat. Do NOT browse menus, products, or content.")
+            appendLine()
+            appendLine("### Where to find support in most apps:")
+            appendLine("1. **Profile/Account icon** — usually in the TOP-RIGHT corner (person icon, avatar, or initials)")
+            appendLine("2. **Inside Profile → Orders / Order History** — find the specific order, then look for 'Help' or 'Support' on that order")
+            appendLine("3. **Hamburger menu (≡ or ⋮)** — usually top-left or top-right, contains 'Help', 'Support', 'Contact Us'")
+            appendLine("4. **Bottom navigation bar** — some apps have 'Account', 'Profile', or 'More' tab at the bottom")
+            appendLine("5. **Help / Support / Contact Us** — direct links, often in profile/account section or app settings")
+            appendLine()
+            appendLine("### Common patterns for specific app categories:")
+            appendLine("- **Food delivery** (Dominos, Swiggy, Zomato, UberEats, DoorDash): Profile icon (top-right) → Orders → Select order → Help/Support")
+            appendLine("- **E-commerce** (Amazon, Flipkart, Myntra): Account/Profile → Orders → Select order → Help/Problem with order")
+            appendLine("- **Ride-hailing** (Uber, Ola, Lyft): Account → Trips/Rides → Select trip → Help")
+            appendLine("- **Telecom** (Airtel, Jio, Vi): Menu → Support/Help/Chat → Live chat")
+            appendLine("- **Banking** (PayTM, PhonePe, GPay): Profile → Help/Support → Chat")
+            appendLine()
+            appendLine("### Navigation rules:")
+            appendLine("- ALWAYS start from Profile/Account — this is the fastest path to support in 90% of apps")
+            appendLine("- NEVER scroll through product listings, menus, or promotional content")
+            appendLine("- NEVER type into a search bar — only type into chat/message input fields")
+            appendLine("- If you see a home screen with products/offers, look for Profile/Account FIRST, do NOT scroll the feed")
+            appendLine("- If you see a popup (notifications, promotions, location), dismiss it immediately")
+            appendLine("- If the specific order is known, navigate to that order FIRST, then find help on that order page")
             appendLine()
             appendLine("## Rules")
             appendLine("1. Be polite but assertive. You represent the customer's interests.")
@@ -494,15 +527,13 @@ class AgentLoop(
             appendLine("9. Upload evidence proactively when it strengthens the case.")
             appendLine("10. After sending a message, always wait_for_response before taking the next action.")
             appendLine("11. Mark the case resolved only when you have confirmation from the support side.")
-            appendLine("12. You can scroll_down or scroll_up to see more content.")
-            appendLine("13. Use press_back to dismiss dialogs or navigate back if needed.")
-            appendLine("14. NEVER type into a search bar. Only type into chat/message input fields.")
-            appendLine("15. If you see a dialog or popup (e.g. 'Allow notifications', 'Sign in'), dismiss it or handle it before proceeding.")
+            appendLine("12. Use press_back to dismiss dialogs or navigate back if needed.")
+            appendLine("13. If you see a dialog or popup (e.g. 'Allow notifications', 'Sign in'), dismiss it or handle it before proceeding.")
             appendLine()
             appendLine("## Important")
             appendLine("You are looking at a REAL Android screen. The elements listed are actual UI components.")
             appendLine("Choose exactly ONE action per turn. Analyze the screen carefully before acting.")
-            appendLine("Think about WHERE you are in the app before deciding what to do.")
+            appendLine("Think about WHERE you are in the app and what is the SHORTEST path to customer support.")
         }
     }
 
@@ -510,19 +541,22 @@ class AgentLoop(
         return buildString {
             appendLine("## Target App: ${caseContext.targetPlatform}")
             appendLine()
-            append(formattedScreen)
-            appendLine()
-            if (previousActions.isNotEmpty()) {
-                appendLine("## Your Previous Actions (last ${previousActions.size.coerceAtMost(10)})")
-                for (action in previousActions.takeLast(10)) {
-                    appendLine("- $action")
+
+            // Include recent turn history so the agent remembers its reasoning.
+            if (turnHistory.isNotEmpty()) {
+                appendLine("## Recent History (last ${turnHistory.size} turns)")
+                for (turn in turnHistory.takeLast(MAX_TURN_HISTORY)) {
+                    appendLine("Turn ${turn.iteration}: [${turn.screenSummary}] → Reasoning: ${turn.reasoning.take(120)} → Action: ${turn.action}")
                 }
                 appendLine()
             }
+
+            appendLine("## Current Screen")
+            append(formattedScreen)
+            appendLine()
             appendLine("Iteration: $iterationCount / ${SafetyPolicy.MAX_ITERATIONS}")
             appendLine()
-            appendLine("Analyze the screen carefully. Where are you in the app? What should you do next?")
-            appendLine("Choose exactly one tool to use.")
+            appendLine("Analyze the screen carefully. Where are you in the app? What is the SHORTEST path to customer support? Choose exactly one tool.")
         }
     }
 
@@ -618,6 +652,14 @@ enum class AgentLoopState {
     FAILED,
     CANCELLED,
 }
+
+/** A single turn of the agent loop, kept for context in future LLM calls. */
+data class TurnRecord(
+    val iteration: Int,
+    val screenSummary: String,
+    val reasoning: String,
+    val action: String,
+)
 
 sealed class AgentEvent {
     data class Started(val caseId: String) : AgentEvent()
