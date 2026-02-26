@@ -24,5 +24,6 @@ android-companion/app/release
 *.iml
 .vscode
 
-# Claude Code
-.claude
+# Claude Code (keep rules/, exclude user-specific data)
+.claude/*
+!.claude/rules/
