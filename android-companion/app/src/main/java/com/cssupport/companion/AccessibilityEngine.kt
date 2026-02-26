@@ -625,69 +625,264 @@ data class ScreenState(
     val focusedElement: UIElement?,
     val timestamp: Long,
 ) {
-    /** Format the screen state as a human-readable description for the LLM. */
+    /**
+     * Format the screen state as a spatially-aware, semantically grouped description for the LLM.
+     *
+     * Improvements over the original flat dump:
+     * 1. Spatial zones (top-bar, content, bottom-bar) so the LLM understands layout
+     * 2. Semantic element types (navigation, button, text, input) for faster parsing
+     * 3. Deduplication and noise filtering (decorative views, tiny invisible elements)
+     * 4. Position hints for ambiguous elements (top-right, bottom-center)
+     * 5. Content descriptions included alongside text for icon-only buttons
+     * 6. Compact format to minimize token usage
+     */
     fun formatForLLM(): String {
         val sb = StringBuilder()
-        sb.appendLine("## Current Screen")
         sb.appendLine("Package: $packageName")
         if (activityName != null) {
-            sb.appendLine("Activity: $activityName")
-            // Provide a human-readable hint from the activity class name.
             val simpleName = activityName.substringAfterLast(".")
             if (simpleName.isNotBlank()) {
-                sb.appendLine("Screen hint: $simpleName")
+                sb.appendLine("Screen: $simpleName")
             }
+        }
+
+        // Screen dimensions heuristic: use the max bounds to estimate screen size.
+        val screenWidth = elements.maxOfOrNull { it.bounds.right } ?: 1080
+        val screenHeight = elements.maxOfOrNull { it.bounds.bottom } ?: 2400
+
+        // Filter out noise: invisible, zero-size, or purely decorative elements.
+        val meaningful = elements.filter { el ->
+            val hasContent = !el.text.isNullOrBlank()
+                || !el.contentDescription.isNullOrBlank()
+                || el.isClickable || el.isEditable || el.isScrollable || el.isCheckable
+            val hasSize = el.bounds.width() > 2 && el.bounds.height() > 2
+            val isOnScreen = el.bounds.right > 0 && el.bounds.bottom > 0
+                && el.bounds.left < screenWidth && el.bounds.top < screenHeight
+            hasContent && hasSize && isOnScreen
+        }
+
+        // Deduplicate elements with same text at same position (common in complex UIs).
+        val deduped = meaningful.distinctBy { el ->
+            val label = el.text ?: el.contentDescription ?: ""
+            val posKey = "${el.bounds.centerX() / 20},${el.bounds.centerY() / 20}"
+            "$label|$posKey|${el.isClickable}|${el.isEditable}"
+        }
+
+        // Partition into spatial zones for layout awareness.
+        val topBarThreshold = screenHeight / 8        // ~top 12.5%
+        val bottomBarThreshold = screenHeight * 7 / 8  // ~bottom 12.5%
+
+        val topBarElements = deduped.filter { it.bounds.centerY() < topBarThreshold }
+        val bottomBarElements = deduped.filter { it.bounds.centerY() > bottomBarThreshold }
+        val contentElements = deduped.filter {
+            it.bounds.centerY() in topBarThreshold..bottomBarThreshold
+        }
+
+        // Detect common screen patterns to give the LLM a high-level hint.
+        val screenPattern = detectScreenPattern(deduped)
+        if (screenPattern.isNotBlank()) {
+            sb.appendLine("Layout: $screenPattern")
         }
         sb.appendLine()
 
-        // Collect chat-like messages (TextViews in scrollable containers).
-        val textElements = elements.filter { !it.text.isNullOrBlank() && !it.isClickable && !it.isEditable }
-        val buttons = elements.filter { it.isClickable && it.isEnabled && (it.text?.isNotBlank() == true || it.contentDescription?.isNotBlank() == true) }
-        val inputFields = elements.filter { it.isEditable }
-        val scrollables = elements.filter { it.isScrollable }
-
-        if (textElements.isNotEmpty()) {
-            sb.appendLine("## Visible Text")
-            for (el in textElements.take(50)) {
-                val label = el.text ?: el.contentDescription ?: continue
-                sb.appendLine("- $label")
-            }
+        // Format top bar (navigation, title, action buttons).
+        if (topBarElements.isNotEmpty()) {
+            sb.appendLine("[TOP BAR]")
+            formatElementsCompact(topBarElements, sb, screenWidth)
             sb.appendLine()
         }
 
-        if (buttons.isNotEmpty()) {
-            sb.appendLine("## Available Buttons / Clickable Elements")
-            for (btn in buttons.take(30)) {
-                val label = btn.text ?: btn.contentDescription ?: "unlabeled"
-                val idHint = if (btn.id != null) " [${btn.id}]" else ""
-                sb.appendLine("- \"$label\"$idHint")
+        // Format main content area, grouped by type.
+        if (contentElements.isNotEmpty()) {
+            val inputFields = contentElements.filter { it.isEditable }
+            val buttons = contentElements.filter {
+                it.isClickable && it.isEnabled && !it.isEditable
+                    && (it.text?.isNotBlank() == true || it.contentDescription?.isNotBlank() == true)
             }
+            val textItems = contentElements.filter {
+                !it.isClickable && !it.isEditable
+                    && (it.text?.isNotBlank() == true || it.contentDescription?.isNotBlank() == true)
+            }
+            val scrollables = contentElements.filter { it.isScrollable }
+
+            sb.appendLine("[CONTENT]")
+
+            if (textItems.isNotEmpty()) {
+                // Limit text to the most recent/relevant (bottom of list is typically newest in chats).
+                val textToShow = if (textItems.size > 25) {
+                    sb.appendLine("(${textItems.size} text items, showing last 25)")
+                    textItems.takeLast(25)
+                } else {
+                    textItems
+                }
+                for (el in textToShow) {
+                    val label = el.text ?: el.contentDescription ?: continue
+                    // Truncate very long text to save tokens.
+                    val truncated = if (label.length > 150) label.take(147) + "..." else label
+                    sb.appendLine("  text: $truncated")
+                }
+            }
+
+            if (buttons.isNotEmpty()) {
+                for (btn in buttons.take(30)) {
+                    val label = btn.text ?: btn.contentDescription ?: "unlabeled"
+                    val posHint = positionHint(btn.bounds, screenWidth)
+                    val typeHint = buttonTypeHint(btn)
+                    sb.appendLine("  $typeHint: \"$label\"$posHint")
+                }
+            }
+
+            if (inputFields.isNotEmpty()) {
+                for (field in inputFields) {
+                    val hint = field.contentDescription ?: field.text ?: "empty"
+                    sb.appendLine("  INPUT: \"$hint\"")
+                }
+            }
+
+            if (scrollables.isNotEmpty()) {
+                sb.appendLine("  (${scrollables.size} scrollable area${if (scrollables.size > 1) "s" else ""})")
+            }
+
             sb.appendLine()
         }
 
-        if (inputFields.isNotEmpty()) {
-            sb.appendLine("## Input Fields")
-            for (field in inputFields) {
-                val hint = field.contentDescription ?: field.text ?: "empty"
-                val idHint = if (field.id != null) " [${field.id}]" else ""
-                sb.appendLine("- Input field: \"$hint\"$idHint")
-            }
-            sb.appendLine()
-        }
-
-        if (scrollables.isNotEmpty()) {
-            sb.appendLine("## Scrollable Containers: ${scrollables.size}")
+        // Format bottom bar (tab navigation).
+        if (bottomBarElements.isNotEmpty()) {
+            sb.appendLine("[BOTTOM BAR]")
+            formatElementsCompact(bottomBarElements, sb, screenWidth)
             sb.appendLine()
         }
 
         if (focusedElement != null) {
-            sb.appendLine("## Focused Element")
             val label = focusedElement.text ?: focusedElement.contentDescription ?: focusedElement.className
-            sb.appendLine("- $label")
-            sb.appendLine()
+            sb.appendLine("Focused: $label")
         }
 
         return sb.toString()
+    }
+
+    /**
+     * Detect common screen patterns from the element composition.
+     * Gives the LLM a fast high-level understanding of what kind of screen it is looking at.
+     */
+    private fun detectScreenPattern(elements: List<UIElement>): String {
+        val allText = elements.mapNotNull { it.text?.lowercase() ?: it.contentDescription?.lowercase() }
+        val hasInputField = elements.any { it.isEditable }
+        val clickables = elements.filter { it.isClickable }
+
+        // Chat/messaging screen: has input field + send button + multiple text items.
+        if (hasInputField && allText.any { it.contains("send") || it.contains("type") || it.contains("message") }) {
+            return "Chat/messaging interface"
+        }
+
+        // Order list: contains order-related keywords.
+        val orderKeywords = listOf("order", "orders", "#", "delivered", "cancelled", "in progress", "track")
+        if (orderKeywords.count { kw -> allText.any { it.contains(kw) } } >= 2) {
+            return "Order list/history"
+        }
+
+        // Support/help page: contains help-related keywords.
+        val helpKeywords = listOf("help", "support", "contact", "faq", "chat with us", "get help", "report")
+        if (helpKeywords.count { kw -> allText.any { it.contains(kw) } } >= 2) {
+            return "Help/support page"
+        }
+
+        // Profile/account page.
+        val profileKeywords = listOf("profile", "account", "settings", "sign out", "log out", "edit profile", "my account")
+        if (profileKeywords.count { kw -> allText.any { it.contains(kw) } } >= 2) {
+            return "Profile/account page"
+        }
+
+        // Home/feed: lots of clickable items, images, promotional content.
+        if (clickables.size > 15 && !hasInputField) {
+            return "Home/feed (many items)"
+        }
+
+        // Bottom navigation present.
+        val screenHeight = elements.maxOfOrNull { it.bounds.bottom } ?: 2400
+        val bottomNav = elements.filter {
+            it.isClickable && it.bounds.centerY() > screenHeight * 7 / 8
+        }
+        if (bottomNav.size >= 3) {
+            return "Screen with bottom navigation (${bottomNav.size} tabs)"
+        }
+
+        return ""
+    }
+
+    /**
+     * Format elements compactly with position hints, suitable for navigation bars.
+     */
+    private fun formatElementsCompact(elements: List<UIElement>, sb: StringBuilder, screenWidth: Int) {
+        // Sort left-to-right for horizontal bars.
+        val sorted = elements.sortedBy { it.bounds.centerX() }
+        for (el in sorted.take(15)) {
+            val label = el.text ?: el.contentDescription
+            if (label.isNullOrBlank()) continue
+            val pos = positionHint(el.bounds, screenWidth)
+            val interactivity = when {
+                el.isEditable -> "INPUT"
+                el.isClickable -> "btn"
+                else -> "text"
+            }
+            sb.appendLine("  $interactivity: \"$label\"$pos")
+        }
+    }
+
+    /**
+     * Generate a concise position hint (e.g., "(left)", "(right)", "(center)").
+     * Helps the LLM distinguish between elements with similar labels.
+     */
+    private fun positionHint(bounds: Rect, screenWidth: Int): String {
+        val centerX = bounds.centerX()
+        return when {
+            centerX < screenWidth / 3 -> " (left)"
+            centerX > screenWidth * 2 / 3 -> " (right)"
+            else -> ""
+        }
+    }
+
+    /**
+     * Classify a clickable element type for the LLM.
+     */
+    private fun buttonTypeHint(el: UIElement): String {
+        val className = el.className.lowercase()
+        val label = (el.text ?: el.contentDescription ?: "").lowercase()
+
+        return when {
+            className.contains("imagebutton") || className.contains("imageview") -> "icon-btn"
+            className.contains("checkbox") || el.isCheckable -> "checkbox"
+            className.contains("switch") -> "switch"
+            className.contains("tab") -> "tab"
+            className.contains("chip") -> "chip"
+            className.contains("radiobutton") -> "radio"
+            // Navigation-like labels.
+            label in listOf("back", "close", "cancel", "navigate up", "menu") -> "nav-btn"
+            else -> "btn"
+        }
+    }
+
+    /**
+     * Generate a compact fingerprint of the screen state for change detection.
+     * Two screen states with the same fingerprint are considered identical.
+     */
+    fun fingerprint(): String {
+        val sig = buildString {
+            append(packageName)
+            append("|")
+            append(activityName ?: "")
+            append("|")
+            // Use a hash of element labels + positions for fast comparison.
+            val elemSig = elements
+                .filter { it.text?.isNotBlank() == true || it.contentDescription?.isNotBlank() == true }
+                .take(20)
+                .joinToString(",") { el ->
+                    val label = (el.text ?: el.contentDescription ?: "").take(20)
+                    "$label@${el.bounds.centerX() / 50}"
+                }
+            append(elemSig)
+        }
+        return sig.hashCode().toString(16)
     }
 }
 
