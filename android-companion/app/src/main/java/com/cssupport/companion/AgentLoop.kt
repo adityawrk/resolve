@@ -99,6 +99,24 @@ class AgentLoop(
     /** Count of total scroll actions, to limit aimless scrolling. */
     private var totalScrollCount = 0
 
+    /** Count of consecutive iterations in NAVIGATING_TO_SUPPORT (for re-planning). */
+    private var navigationAttemptCount = 0
+
+    /** App-specific navigation profile, resolved once at startup. */
+    private var appNavProfile: AppNavProfile? = null
+
+    /** Recent action descriptions for action-level oscillation detection. */
+    private val recentActionDescs = mutableListOf<String>()
+
+    /** Count of consecutive "no tool call" wait responses. */
+    private var consecutiveNoToolCalls = 0
+
+    /** Set of element IDs that have been proven to lead to wrong screens. */
+    private val bannedElementIds = mutableSetOf<Int>()
+
+    /** Count of consecutive turns spent in a non-target app. */
+    private var wrongAppTurnCount = 0
+
     // -- Sub-goal tracking (Manus's dynamic todo.md pattern) ------------------
 
     /** Ordered list of sub-goals for the current case. */
@@ -135,6 +153,19 @@ class AgentLoop(
 
         /** Recent fingerprints window for oscillation detection. */
         const val FINGERPRINT_WINDOW = 6
+
+        /**
+         * Minimum interactive elements required for a screen to be considered "loaded".
+         * Splash screens and loading screens typically have 0-2 interactive elements.
+         * A real app home screen has 5+.
+         */
+        const val MIN_ELEMENTS_FOR_LOADED_SCREEN = 3
+
+        /** Max time to wait for the first screen to have meaningful content. */
+        const val INITIAL_LOAD_WAIT_MS = 8_000L
+
+        /** Max consecutive turns in a non-target app before auto-correcting. */
+        const val MAX_WRONG_APP_TURNS = 2
     }
 
     @Volatile
@@ -154,9 +185,14 @@ class AgentLoop(
         currentPhase = NavigationPhase.NAVIGATING_TO_SUPPORT
         stagnationCount = 0
         totalScrollCount = 0
+        navigationAttemptCount = 0
+        appNavProfile = AppNavigationKnowledge.lookup(caseContext.targetPlatform)
+            ?: AppNavigationKnowledge.lookupByName(caseContext.targetPlatform)
         subGoals.clear()
         subGoalsInitialized = false
         maskedUpToIndex = 0
+        lastVerifiedScreen = null
+        wrongAppTurnCount = 0
 
         emit(AgentEvent.Started(caseId = caseContext.caseId))
         AgentLogStore.log("Agent loop started for case ${caseContext.caseId}", LogCategory.STATUS_UPDATE, "Starting...")
@@ -172,6 +208,7 @@ class AgentLoop(
             AgentResult.Cancelled
         } catch (e: Exception) {
             _state.value = AgentLoopState.FAILED
+            val errorDetail = e.message?.take(120) ?: e.javaClass.simpleName
             val displayMessage = when {
                 e.message?.contains("401") == true ->
                     "Your API key appears to be invalid. Check Settings."
@@ -182,13 +219,13 @@ class AgentLoop(
                 e is java.net.SocketTimeoutException ->
                     "The request timed out. Try again."
                 e.message?.contains("HTTP") == true ->
-                    "Could not reach the AI service. Check your internet connection."
+                    "Could not reach the AI service: $errorDetail"
                 else ->
-                    "Something went wrong. Please try again."
+                    "Error: $errorDetail"
             }
             emit(AgentEvent.Failed(reason = displayMessage))
-            AgentLogStore.log("Agent loop failed: ${e.message}", LogCategory.TERMINAL_FAILED, displayMessage)
-            Log.e(tag, "Agent loop failed: ${e.message}", e)
+            AgentLogStore.log("Agent loop failed: ${e.javaClass.simpleName}: ${e.message}", LogCategory.TERMINAL_FAILED, displayMessage)
+            Log.e(tag, "Agent loop failed: ${e.javaClass.simpleName}: ${e.message}", e)
             AgentResult.Failed(reason = displayMessage)
         }
     }
@@ -222,12 +259,22 @@ class AgentLoop(
             Log.d(tag, "--- Iteration $iterationCount ---")
 
             // Step 1: Observe -- capture stable screen state.
+            // Optimization: if verification already captured a post-action screen,
+            // reuse it instead of capturing again (saves ~500ms per iteration).
             val screenState = if (iterationCount == 1) {
-                // First iteration: just capture, no stabilization wait.
-                engine.captureScreenState()
+                // First iteration: wait for meaningful content (loading race condition fix).
+                // Splash screens and loading screens have very few interactive elements.
+                // Poll until we see enough elements or timeout.
+                lastVerifiedScreen = null
+                waitForMeaningfulScreen()
+            } else if (lastVerifiedScreen != null) {
+                // Reuse the screen captured during verification (pipelining).
+                val reused = lastVerifiedScreen!!
+                lastVerifiedScreen = null
+                reused
             } else {
-                // Subsequent iterations: wait for screen to stabilize after last action.
-                engine.waitForStableScreen(maxWaitMs = 4000, pollIntervalMs = 500)
+                // Fallback: wait for screen to stabilize after last action.
+                engine.waitForStableScreen(maxWaitMs = 3000, pollIntervalMs = 300)
             }
 
             emit(AgentEvent.ScreenCaptured(
@@ -269,6 +316,46 @@ class AgentLoop(
                 continue
             }
 
+            // Step 1b: App-scope restriction — detect if agent strayed to a non-target app.
+            // Prevents the agent from interacting with unrelated apps (email, browser, etc.).
+            val targetPkg = caseContext.targetPlatform.lowercase()
+            val currentPkg = screenState.packageName.lowercase()
+            if (currentPkg.isNotEmpty()
+                && currentPkg != OWN_PACKAGE
+                && !currentPkg.contains(targetPkg)
+                && !targetPkg.contains(currentPkg)
+            ) {
+                wrongAppTurnCount++
+                Log.w(tag, "[$iterationCount] Wrong app detected: $currentPkg (target: $targetPkg), count=$wrongAppTurnCount")
+
+                if (wrongAppTurnCount >= MAX_WRONG_APP_TURNS) {
+                    // Auto-correct: press back to try to return to the target app.
+                    AgentLogStore.log("[$iterationCount] Wrong app ($currentPkg), pressing back", LogCategory.AGENT_ACTION, "Returning to app...")
+                    try { engine.pressBack() } catch (_: Exception) {}
+                    delay(500)
+                    // If still in wrong app after back, try re-launching.
+                    val checkScreen = engine.captureScreenState()
+                    if (!checkScreen.packageName.lowercase().contains(targetPkg)) {
+                        launchTargetApp?.invoke()
+                        AgentLogStore.log("Re-launching target app", LogCategory.STATUS_UPDATE, "Opening app...")
+                        delay(2000)
+                    }
+                    wrongAppTurnCount = 0
+                } else {
+                    // First occurrence — warn via conversation and press back.
+                    val hint = "⚠ WRONG APP: You are in $currentPkg, NOT the target app (${caseContext.targetPlatform}). " +
+                        "press_back immediately to return to the correct app."
+                    conversationHistory.add(ConversationMessage.UserObservation(content = hint))
+                    estimatedTokens += hint.length / 4
+                    try { engine.pressBack() } catch (_: Exception) {}
+                    delay(500)
+                }
+                iterationCount-- // Don't count wrong-app turns.
+                continue
+            } else {
+                wrongAppTurnCount = 0
+            }
+
             // Step 2: Detect changes and update phase.
             val currentFingerprint = screenState.fingerprint()
             val changeDescription = detectChanges(currentFingerprint, screenState)
@@ -290,9 +377,34 @@ class AgentLoop(
             // Step 2c: Check for oscillation (A->B->A->B pattern).
             val oscillationWarning = detectOscillation()
 
+            // Step 2d: Detect wrong screen (product page instead of navigation).
+            val wrongScreenWarning = detectWrongScreen(screenState)
+
+            // Step 2e: Ban elements that led to wrong screens.
+            // If we detected a wrong screen AND the previous action was a click, ban that element.
+            if (wrongScreenWarning.isNotBlank() && recentActionDescs.isNotEmpty()) {
+                val lastAction = recentActionDescs.lastOrNull() ?: ""
+                // describeAction format: "Click: [6]" or "Click: [6] \"label\""
+                val idMatch = Regex("\\[(\\d+)]").find(lastAction)
+                if (idMatch != null) {
+                    val badId = idMatch.groupValues[1].toIntOrNull()
+                    if (badId != null) {
+                        bannedElementIds.add(badId)
+                        Log.w(tag, "Banned element $badId — led to wrong screen")
+                    }
+                }
+            }
+
             // Step 3: Build the user message with numbered elements and progress tracker.
-            val formattedScreen = screenState.formatForLLM(previousScreen = previousScreenState)
-            val userMessage = buildUserMessage(formattedScreen, changeDescription, oscillationWarning)
+            // During navigation phases, collapse product/content elements to prevent
+            // the LLM from clicking food items instead of navigation tabs.
+            val collapseContent = currentPhase == NavigationPhase.NAVIGATING_TO_SUPPORT
+                || currentPhase == NavigationPhase.ON_ORDER_PAGE
+            val formattedScreen = screenState.formatForLLM(
+                previousScreen = previousScreenState,
+                collapseContent = collapseContent,
+            )
+            val userMessage = buildUserMessage(formattedScreen, changeDescription, oscillationWarning, wrongScreenWarning, screenState)
 
             // Save state for next iteration's differential tracking.
             previousScreenState = screenState
@@ -314,30 +426,28 @@ class AgentLoop(
                 llmRetryCount = 0
             } catch (e: Exception) {
                 llmRetryCount++
-                val backoffMs = (3000L * (1 shl llmRetryCount.coerceAtMost(4))).coerceAtMost(30_000L)
-                val waitSec = backoffMs / 1000
-                Log.e(tag, "LLM call failed: ${e.javaClass.simpleName}: ${e.message}", e)
+                Log.e(tag, "LLM call failed (attempt $llmRetryCount): ${e.javaClass.simpleName}: ${e.message}", e)
                 emit(AgentEvent.Error(message = "LLM error: ${e.javaClass.simpleName}: ${e.message}"))
 
-                val shortError = when {
-                    e.message?.contains("401") == true -> "API key invalid or expired"
-                    e.message?.contains("403") == true -> "Access denied — check API key"
-                    e.message?.contains("404") == true -> "Model not found — check Settings"
-                    e.message?.contains("429") == true -> "Rate limited, retrying in ${waitSec}s..."
-                    e is java.net.UnknownHostException -> "No internet connection"
-                    e is java.net.ConnectException -> "Cannot reach AI service"
-                    e is java.net.SocketTimeoutException -> "Request timed out, retrying..."
-                    else -> "AI error: ${e.message?.take(80) ?: "unknown"}"
-                }
+                // Classify error: retryable vs terminal (Codex RespondToModel pattern).
+                val errorClass = classifyLLMError(e)
+
                 AgentLogStore.log(
                     "[$iterationCount] LLM error: ${e.javaClass.simpleName}: ${e.message}",
                     LogCategory.ERROR,
-                    shortError,
+                    errorClass.userMessage,
                 )
 
-                if (llmRetryCount >= 5) {
-                    return AgentResult.Failed(reason = shortError)
+                if (!errorClass.retryable || llmRetryCount >= 5) {
+                    return AgentResult.Failed(reason = errorClass.userMessage)
                 }
+
+                // Exponential backoff with jitter: base × 2^attempt × random(0.9, 1.1)
+                val baseDelay = 2000L
+                val exponential = baseDelay * (1L shl llmRetryCount.coerceAtMost(4))
+                val jitter = 0.9 + Math.random() * 0.2 // [0.9, 1.1]
+                val backoffMs = (exponential * jitter).toLong().coerceAtMost(30_000L)
+                Log.d(tag, "Retrying in ${backoffMs}ms (attempt $llmRetryCount, jitter=${"%.2f".format(jitter)})")
 
                 delay(backoffMs)
                 continue
@@ -348,6 +458,28 @@ class AgentLoop(
                 action = describeAction(decision.action),
                 reasoning = decision.reasoning,
             ))
+
+            // Step 3c: Handle "no tool call" responses efficiently.
+            val isNoToolCallWait = decision.action is AgentAction.Wait
+                && decision.action.reason.contains("no tool call", ignoreCase = true)
+            if (isNoToolCallWait) {
+                consecutiveNoToolCalls++
+                if (consecutiveNoToolCalls in 2..4) {
+                    // Don't waste iterations — inject a forceful directive and retry.
+                    Log.w(tag, "[$iterationCount] $consecutiveNoToolCalls consecutive no-tool-call responses, injecting force-action directive")
+                    val forceHint = "SYSTEM: You MUST call a tool NOW. Look at the screen and pick the most promising element. " +
+                        "If you see >>> elements, click one. If stuck, use press_back. Do NOT skip your turn."
+                    conversationHistory.add(ConversationMessage.UserObservation(content = forceHint))
+                    estimatedTokens += forceHint.length / 4
+                    // Don't count as a full iteration — give the LLM another chance.
+                    iterationCount--
+                    delay(500)
+                    continue
+                }
+                // After 4+ retries, just let it proceed as Wait (won't loop forever).
+            } else {
+                consecutiveNoToolCalls = 0
+            }
 
             // Step 4: Validate against safety policy.
             val policyResult = safetyPolicy.validate(decision.action, iterationCount)
@@ -372,6 +504,20 @@ class AgentLoop(
                     delay(SafetyPolicy.MIN_ACTION_DELAY_MS)
                     continue
                 }
+            }
+
+            // Step 4a-bis: Handle UpdatePlan (no-op tool, Codex pattern).
+            // Plan updates don't count as iterations — they're pure reasoning.
+            if (decision.action is AgentAction.UpdatePlan) {
+                val plan = decision.action as AgentAction.UpdatePlan
+                logAction(plan, describeAction(plan))
+                recordConversationTurn(
+                    userMessage, decision,
+                    "Plan recorded. Now execute the next step — call an action tool.",
+                )
+                iterationCount-- // Don't count plan updates as iterations.
+                delay(200) // Small delay before next LLM call.
+                continue
             }
 
             // Step 4b: Detect repeated identical actions.
@@ -404,6 +550,24 @@ class AgentLoop(
                 totalScrollCount++
             }
 
+            // Step 4d: Track actions for pattern detection + enforce bans.
+            recentActionDescs.add(actionSignature)
+            while (recentActionDescs.size > 10) recentActionDescs.removeAt(0)
+
+            // If the action is a click on a banned element, skip it.
+            val clickedId = (decision.action as? AgentAction.ClickElement)?.elementId
+            if (clickedId != null && clickedId in bannedElementIds) {
+                Log.w(tag, "[$iterationCount] Skipping click on banned element $clickedId")
+                recordConversationTurn(
+                    userMessage, decision,
+                    "BLOCKED: Element [$clickedId] was already tried and led to a WRONG screen. " +
+                        "This element is banned. Choose a DIFFERENT element."
+                )
+                AgentLogStore.log("[$iterationCount] Blocked banned element $clickedId", LogCategory.DEBUG, "Trying different path...")
+                delay(SafetyPolicy.MIN_ACTION_DELAY_MS)
+                continue
+            }
+
             // Step 5: Execute the action.
             val actionDescription = actionSignature
             logAction(decision.action, actionDescription)
@@ -411,13 +575,30 @@ class AgentLoop(
             // Capture pre-action screen for verification.
             val preActionFingerprint = currentFingerprint
 
-            val actionResult = executeAction(decision.action, screenState)
+            val actionResult: ActionResult
+            var verificationResult: VerificationResult? = null
+            try {
+                actionResult = executeAction(decision.action, screenState)
 
-            // Step 6: Post-action verification.
-            val verificationResult = if (actionResult is ActionResult.Success) {
-                verifyAction(decision.action, preActionFingerprint, screenState)
-            } else {
-                null // Skip verification for failed/terminal actions.
+                // Step 6: Post-action verification.
+                verificationResult = if (actionResult is ActionResult.Success) {
+                    verifyAction(decision.action, preActionFingerprint, screenState)
+                } else {
+                    null // Skip verification for failed/terminal actions.
+                }
+            } catch (e: CancellationException) {
+                throw e // Don't swallow cancellation.
+            } catch (e: Exception) {
+                // Catch AccessibilityNodeInfo crashes, stale window errors, etc.
+                // Log the error but don't kill the loop — let the LLM recover.
+                Log.e(tag, "[$iterationCount] Action/verify crashed: ${e.javaClass.simpleName}: ${e.message}", e)
+                val errorMsg = "Action failed: ${e.message?.take(80) ?: e.javaClass.simpleName}"
+                recordConversationTurn(userMessage, decision, "FAILED: $errorMsg. Try a different approach.")
+                AgentLogStore.log("[$iterationCount] $errorMsg", LogCategory.ERROR, "Action error, retrying...")
+                emit(AgentEvent.ActionExecuted(description = actionDescription, success = false))
+                lastVerifiedScreen = null
+                delay(SafetyPolicy.MIN_ACTION_DELAY_MS)
+                continue
             }
 
             // Step 7: Record the turn in conversation history with verification feedback.
@@ -453,7 +634,7 @@ class AgentLoop(
                 }
             }
 
-            // Step 8: Wait for screen to update before next iteration.
+            // Step 8: Wait before next iteration (reduced from 2s to 0.8s for speed).
             delay(SafetyPolicy.MIN_ACTION_DELAY_MS)
         }
 
@@ -461,6 +642,60 @@ class AgentLoop(
         return AgentResult.Failed(
             reason = "Reached maximum of $iterationCount iterations without resolving the issue",
         )
+    }
+
+    // == Loading race condition fix =============================================
+
+    /**
+     * Wait for the first screen to have meaningful content before the agent starts acting.
+     *
+     * Splash screens and loading screens (e.g. "Setting your Location...") typically have
+     * very few interactive elements (0-2). A real app home screen has 5+.
+     * Poll until we see enough interactive elements or timeout.
+     *
+     * This fixes the race condition where the agent acts on a splash screen and navigates
+     * to the wrong place (e.g. Dominos Menu page instead of Home page).
+     */
+    private suspend fun waitForMeaningfulScreen(): ScreenState {
+        val deadline = System.currentTimeMillis() + INITIAL_LOAD_WAIT_MS
+        var bestScreen = engine.captureScreenState()
+        var bestInteractiveCount = bestScreen.elements.count { it.isClickable || it.isEditable }
+
+        if (bestInteractiveCount >= MIN_ELEMENTS_FOR_LOADED_SCREEN) {
+            Log.d(tag, "First screen has $bestInteractiveCount interactive elements — ready")
+            return bestScreen
+        }
+
+        Log.d(tag, "First screen has only $bestInteractiveCount interactive elements — waiting for content to load...")
+        AgentLogStore.log("Waiting for app to load...", LogCategory.STATUS_UPDATE, "Loading...")
+
+        while (System.currentTimeMillis() < deadline) {
+            currentCoroutineContext().ensureActive()
+            delay(500)
+
+            val screen = try {
+                engine.captureScreenState()
+            } catch (_: Exception) {
+                continue
+            }
+
+            val interactiveCount = screen.elements.count { it.isClickable || it.isEditable }
+
+            if (interactiveCount > bestInteractiveCount) {
+                bestScreen = screen
+                bestInteractiveCount = interactiveCount
+            }
+
+            if (interactiveCount >= MIN_ELEMENTS_FOR_LOADED_SCREEN) {
+                Log.d(tag, "Screen now has $interactiveCount interactive elements — ready (waited ${INITIAL_LOAD_WAIT_MS - (deadline - System.currentTimeMillis())}ms)")
+                // Wait a tiny bit more for late-loading elements.
+                delay(300)
+                return engine.captureScreenState()
+            }
+        }
+
+        Log.w(tag, "Timed out waiting for meaningful screen (best: $bestInteractiveCount elements)")
+        return bestScreen
     }
 
     // == Sub-goal tracking (Manus's dynamic todo.md pattern) ==================
@@ -746,6 +981,89 @@ class AgentLoop(
             // Default: still navigating.
             else -> NavigationPhase.NAVIGATING_TO_SUPPORT
         }
+
+        // Track consecutive navigation attempts for re-planning.
+        if (currentPhase == NavigationPhase.NAVIGATING_TO_SUPPORT) {
+            navigationAttemptCount++
+        } else {
+            navigationAttemptCount = 0
+        }
+    }
+
+    /**
+     * Detect if the agent has strayed to a product/content page (e.g., pizza menu)
+     * and compute a relevance score for the current screen.
+     *
+     * Returns a warning string if the screen looks like a product page, or empty string.
+     * This warning is injected into the user message so the LLM knows to press_back.
+     */
+    private fun detectWrongScreen(screenState: ScreenState): String {
+        if (currentPhase != NavigationPhase.NAVIGATING_TO_SUPPORT) return ""
+
+        val allText = screenState.elements.mapNotNull {
+            (it.text ?: it.contentDescription)?.lowercase()
+        }
+        val activityName = screenState.activityName?.lowercase() ?: ""
+
+        // Detect specific wrong screens by activity name.
+        if (activityName.contains("wallet") || activityName.contains("mywallet")) {
+            return "⚠ WRONG SCREEN: This is the Wallet page, NOT navigation to support. " +
+                "press_back immediately. Then find the RIGHTMOST unlabeled icon in the top bar (NOT the wallet/₹ icon)."
+        }
+
+        // Product page indicators — if many of these appear, agent is on a wrong screen.
+        val productKeywords = listOf(
+            "add to cart", "add to bag", "buy now", "add item", "customize",
+            "quantity", "qty", "size", "regular", "medium", "large",
+            "toppings", "extra cheese", "crust",
+            "₹", "rs.", "price", "mrp", "discount", "off",
+            "veg", "non-veg", "bestseller", "popular",
+            "ratings", "reviews", "stars",
+        )
+
+        // Support/navigation indicators — screen is on the right track.
+        val navKeywords = listOf(
+            "account", "profile", "orders", "my orders", "order history",
+            "help", "support", "contact", "settings",
+        )
+
+        val productHits = productKeywords.count { kw -> allText.any { it.contains(kw) } }
+        val navHits = navKeywords.count { kw -> allText.any { it.contains(kw) } }
+
+        // Strong product page signal: many product keywords, few/no nav keywords.
+        if (productHits >= 4 && navHits <= 1) {
+            val profile = appNavProfile
+            val hint = if (profile != null) {
+                "press_back and then: ${profile.supportPath.firstOrNull() ?: "find the sidebar/profile icon"}"
+            } else {
+                "press_back immediately and look for Profile/Account/More tab in the bottom bar."
+            }
+            return "⚠ WRONG SCREEN: This looks like a product/menu page (detected: price, add to cart, etc.). $hint"
+        }
+
+        // Moderate signal: some product keywords.
+        if (productHits >= 2 && navHits == 0 && navigationAttemptCount >= 3) {
+            return "⚠ You may be on a product page. Consider pressing back and using the correct navigation path."
+        }
+
+        return ""
+    }
+
+    /**
+     * Generate a re-planning directive when the agent has been stuck navigating too long.
+     */
+    private fun generateReplanningHint(): String {
+        if (navigationAttemptCount < 5) return ""
+
+        val profile = appNavProfile
+        return if (profile != null) {
+            "⚠ STUCK: You've spent $navigationAttemptCount turns navigating without reaching support. " +
+                "RESET your approach. For ${profile.appName}: ${profile.profileLocation}. " +
+                "Try press_back to return to the home screen, then follow the app-specific steps."
+        } else {
+            "⚠ STUCK: You've spent $navigationAttemptCount turns navigating without progress. " +
+                "RESET: press_back to the home screen, then look for Profile/Account/More in the BOTTOM navigation bar."
+        }
     }
 
     // == Post-action verification (+15 points from Minitap) ===================
@@ -756,15 +1074,27 @@ class AgentLoop(
      * Captures a fresh screen state and compares with pre-action state.
      * Returns a verification result that gets included in the tool result message,
      * giving the LLM immediate feedback about whether its action worked.
+     *
+     * Also stores the post-action screen as [lastVerifiedScreen] so the next iteration
+     * can reuse it instead of capturing the screen again (pipelining optimization).
      */
+    private var lastVerifiedScreen: ScreenState? = null
+
     private suspend fun verifyAction(
         action: AgentAction,
         preActionFingerprint: String,
         preActionState: ScreenState,
     ): VerificationResult {
         // Short delay to let the action take effect.
-        delay(600)
-        val postState = engine.captureScreenState()
+        delay(300)
+        val postState = try {
+            engine.captureScreenState()
+        } catch (e: Exception) {
+            Log.w(tag, "verifyAction: screen capture failed: ${e.message}")
+            lastVerifiedScreen = null
+            return VerificationResult.Success("Action executed (could not verify screen state).")
+        }
+        lastVerifiedScreen = postState
         val postFingerprint = postState.fingerprint()
 
         return when (action) {
@@ -832,7 +1162,8 @@ class AgentLoop(
             is AgentAction.Wait,
             is AgentAction.UploadFile,
             is AgentAction.RequestHumanReview,
-            is AgentAction.MarkResolved -> null
+            is AgentAction.MarkResolved,
+            is AgentAction.UpdatePlan -> null
         } ?: VerificationResult.Success("Action completed.")
     }
 
@@ -949,6 +1280,12 @@ class AgentLoop(
 
             is AgentAction.MarkResolved -> {
                 ActionResult.Resolved(summary = action.summary)
+            }
+
+            is AgentAction.UpdatePlan -> {
+                // No-op tool (Codex pattern): the plan is purely for LLM reasoning and UI.
+                // The plan is already recorded in conversation history by recordConversationTurn().
+                ActionResult.Success
             }
         }
     }
@@ -1080,98 +1417,94 @@ class AgentLoop(
 
     private fun buildSystemPrompt(): String {
         return buildString {
-            appendLine("You are Resolve, an AI agent that automates customer support on behalf of a real human customer.")
-            appendLine("You control a real Android phone through an accessibility service. The UI elements shown are real interactive components.")
-            appendLine("Each element has a [N] number. Use click_element(elementId=N) to click by number. This is MUCH more reliable than matching by text.")
+            appendLine("You are Resolve, an AI agent navigating a real Android phone to reach customer support and resolve an issue for a customer.")
+            appendLine("You ARE the customer. Speak in first person. Never reveal you are AI.")
             appendLine()
 
-            // -- Core identity --
-            appendLine("## Identity")
-            appendLine("- You ARE the customer. Speak in first person. Never reveal you are AI.")
-            appendLine("- You are polite but firm. You advocate for the customer's interests.")
-            appendLine("- You are efficient. Every action should move toward the goal.")
-            appendLine()
-
-            // -- Customer's case --
-            appendLine("## Customer's Issue")
+            // -- Case context --
+            appendLine("## Issue")
             appendLine(caseContext.issue)
-            appendLine()
-            appendLine("## Desired Outcome")
-            appendLine(caseContext.desiredOutcome)
+            appendLine("Desired outcome: ${caseContext.desiredOutcome}")
             if (!caseContext.orderId.isNullOrBlank()) {
-                appendLine()
-                appendLine("## Order ID: ${caseContext.orderId}")
+                appendLine("Order ID: ${caseContext.orderId}")
             }
             if (caseContext.hasAttachments) {
-                appendLine()
-                appendLine("## Evidence: Customer has photo/file evidence to upload when needed.")
+                appendLine("Evidence available to upload when needed.")
             }
             appendLine()
 
-            // -- Think-then-act protocol --
-            appendLine("## Decision Protocol (MANDATORY)")
-            appendLine("Before EVERY action, you MUST think through these steps:")
-            appendLine("1. OBSERVE: What screen am I on? What elements are available (by [N] number)?")
-            appendLine("2. THINK: What phase am I in? What sub-goal am I working on? What has/hasn't worked?")
-            appendLine("3. PLAN: What are the next 2-3 steps to reach my current sub-goal?")
-            appendLine("4. ACT: Choose exactly ONE tool call that advances the plan. Use elementId=[N] for clicks.")
+            // -- Critical: how to read the screen and what to click --
+            appendLine("## How to Read the Screen")
+            appendLine("Elements marked >>> are NAVIGATION (tabs, profile, help, orders). These lead to support.")
+            appendLine("Elements marked ~ are PRODUCTS/CONTENT. These are NOT paths to support.")
+            appendLine("RULE: ONLY click elements marked >>> with [N] IDs. NEVER click ~ items.")
+            appendLine()
+            appendLine("## Unlabeled Icons")
+            appendLine("Some icons have no text — shown as \"unlabeled\" with position hints (far-left, left, center, right, far-right).")
+            appendLine("When the app-specific steps say 'rightmost unlabeled icon', pick the one marked (far-right).")
+            appendLine("NEVER click an icon with ₹/wallet/cash text when looking for a menu/sidebar — those open wallet, not navigation.")
             appendLine()
 
-            // -- Element reference instructions --
-            appendLine("## How to Reference Elements")
-            appendLine("The screen state shows numbered elements like: [7] btn: \"Help\" (right)")
-            appendLine("- To click element 7, use: click_element(elementId=7, expectedOutcome=\"Opens help page\")")
-            appendLine("- ALWAYS use elementId when a number is shown. It is exact and reliable.")
-            appendLine("- Only use the label fallback when element numbers are not available.")
+            // -- Navigation decision tree (compact, numbered) --
+            appendLine("## Navigation Priority (follow this order)")
+            appendLine("1. BOTTOM BAR: Click \"Account\", \"Profile\", \"More\", or \"Me\" tab")
+            appendLine("2. TOP BAR: Click person/avatar icon (usually top-right)")
+            appendLine("3. On Account/Profile: Click \"Orders\" or \"Order History\"")
+            appendLine("4. On Orders list: Click the relevant order${if (!caseContext.orderId.isNullOrBlank()) " (${caseContext.orderId})" else ""}")
+            appendLine("5. On Order detail: Click \"Help\", \"Support\", or \"Report Issue\"")
+            appendLine("6. On Help page: Click \"Chat\", \"Live Chat\", or select issue category")
+            appendLine("7. In Chat: Describe issue, request ${caseContext.desiredOutcome}, wait for response")
             appendLine()
 
-            // -- Navigation strategy --
-            appendLine("## Navigation Strategy")
+            // -- App-specific navigation knowledge --
+            val profile = appNavProfile
+            if (profile != null) {
+                append(profile.toPromptBlock())
+                appendLine()
+            } else {
+                // Generic few-shot example for unknown apps.
+                appendLine("## Example")
+                appendLine("Screen: [4] btn: \"Pizza\", [5] btn: \"Sides\", [38] tab: \"Menu\" [SELECTED], [41] tab: \"More\"")
+                appendLine("CORRECT: click_element(elementId=41) → \"More\" leads to Account/Orders")
+                appendLine("WRONG: clicking Pizza or Sides — those are products, not support paths")
+                appendLine()
+            }
+
+            // -- In-chat behavior --
+            appendLine("## In Support Chat")
+            appendLine("You ARE the customer. Speak naturally in first person. Be polite but firm.")
             appendLine()
-            appendLine("### Phase 1: Find Customer Support (your FIRST priority)")
-            appendLine("The FASTEST path to support in almost every app:")
-            appendLine("1. Look for Profile/Account icon in the TOP BAR (usually top-right: person icon, avatar, initials, or \"Account\")")
-            appendLine("2. In Profile/Account, find \"Orders\" or \"Order History\"")
-            appendLine("3. Find the specific order (use Order ID if known)")
-            appendLine("4. On the order detail page, find \"Help\", \"Support\", \"Report an issue\", or \"Get Help\"")
-            appendLine("5. This opens the support flow for that specific order")
+            appendLine("### Conversation strategy")
+            appendLine("1. FIRST MESSAGE: State issue clearly with order details.")
+            appendLine("   Example: \"Hi, I have an issue with my order${if (!caseContext.orderId.isNullOrBlank()) " #${caseContext.orderId}" else ""}. ${caseContext.issue.take(80)}. I'd like a ${caseContext.desiredOutcome.lowercase()}.\"")
+            appendLine("2. After sending: ALWAYS call wait_for_response (5s) before looking at screen again")
+            appendLine("3. Read the support agent's response carefully before replying")
+            appendLine("4. If the agent asks for details: provide them from the case context")
+            appendLine("5. If the agent offers a resolution: accept it if it matches desired outcome")
+            appendLine("6. If the agent asks you to choose an option: click the most relevant button/chip")
             appendLine()
-            appendLine("### Alternative paths (if Profile approach fails):")
-            appendLine("- Bottom navigation bar: look for \"Account\", \"Profile\", \"More\", or \"Menu\" tab")
-            appendLine("- Hamburger menu (3 lines or 3 dots, usually top-left or top-right)")
-            appendLine("- Direct \"Help\" or \"Support\" in bottom nav or settings")
+            appendLine("### Chatbot menus (common in Dominos, Swiggy, etc.)")
+            appendLine("- Many apps use chatbot menus with predefined options as BUTTONS")
+            appendLine("- Click the option that best matches the issue (e.g., \"Order issue\", \"Missing items\", \"Wrong order\")")
+            appendLine("- If there's a \"Talk to agent\" or \"Chat with human\" option and the bot can't help, select it")
+            appendLine("- Do NOT type when there are clickable option buttons — click them instead")
             appendLine()
-            appendLine("### App-specific patterns:")
-            appendLine("- Food delivery (Dominos, Swiggy, Zomato, UberEats): Profile/Account (top-right) -> Orders -> [order] -> Help")
-            appendLine("- E-commerce (Amazon, Flipkart): Account -> Your Orders -> [order] -> Problem/Help")
-            appendLine("- Ride-hailing (Uber, Ola): Account -> Trips -> [trip] -> Help")
-            appendLine("- Telecom/Banking: Menu -> Support/Help -> Live Chat")
+            appendLine("### When to use each tool")
+            appendLine("- click_element: For buttons, chips, menu options shown on screen")
+            appendLine("- type_message: ONLY when there's an active text input field and no option buttons match")
+            appendLine("- wait_for_response: After EVERY message you send, to let the agent reply")
+            appendLine("- request_human_review: If asked for OTP, card digits, CAPTCHA, or info you don't have")
+            appendLine("- mark_resolved: ONLY when support EXPLICITLY confirms resolution (refund approved, ticket number given, etc.)")
             appendLine()
 
-            // -- Phase 2: In the support chat --
-            appendLine("### Phase 2: Communicating in Support Chat")
-            appendLine("Once you reach the chat/support interface:")
-            appendLine("1. If there are pre-set issue categories (buttons/chips), click the most relevant one")
-            appendLine("2. When there's a text input, clearly describe the issue in 1-2 sentences")
-            appendLine("3. Include the order ID if you have it")
-            appendLine("4. State what you want (refund, replacement, etc.) clearly")
-            appendLine("5. After sending a message, ALWAYS use wait_for_response")
-            appendLine("6. If the bot offers options, pick the one closest to the desired outcome")
-            appendLine("7. If asked for info you don't have, use request_human_review")
-            appendLine()
-
-            // -- Hard rules --
-            appendLine("## Hard Rules")
-            appendLine("1. NEVER scroll through product listings, menus, or promotional content. These are NOT paths to support.")
-            appendLine("2. NEVER type into a search bar. Only type into chat/message input fields.")
-            appendLine("3. If you see a popup (notifications, promotions, ads, location), DISMISS it immediately (press_back or click X/Close/Not now).")
-            appendLine("4. If you see a home screen with products/food items, go to Profile/Account FIRST.")
-            appendLine("5. NEVER share SSN, credit card numbers, or passwords. Use request_human_review if asked.")
-            appendLine("6. After sending a chat message, ALWAYS wait_for_response before the next action.")
-            appendLine("7. Only mark_resolved when you have EXPLICIT confirmation from support (refund issued, ticket created, etc.).")
-            appendLine("8. If stuck after 3 attempts, try press_back and navigate via a different path.")
-            appendLine("9. Maximum ${SafetyPolicy.MAX_ITERATIONS} actions available. Be efficient.")
-            appendLine("10. Pay attention to verification feedback in tool results. If you see WARNING, your action may not have worked.")
+            // -- Rules --
+            appendLine("## Rules")
+            appendLine("- DISMISS popups immediately (press_back or click X/Close)")
+            appendLine("- NEVER type in search bars — only chat inputs")
+            appendLine("- NEVER share SSN, credit card, or passwords")
+            appendLine("- If stuck 3 turns: press_back, try different path")
+            appendLine("- ${SafetyPolicy.MAX_ITERATIONS} actions max. Be efficient.")
+            appendLine("- Heed WARNING in tool results — your action may have failed")
         }
     }
 
@@ -1179,6 +1512,8 @@ class AgentLoop(
         formattedScreen: String,
         changeDescription: String,
         oscillationWarning: String,
+        wrongScreenWarning: String = "",
+        screenState: ScreenState? = null,
     ): String {
         return buildString {
             // Target app context.
@@ -1207,6 +1542,25 @@ class AgentLoop(
                 appendLine(oscillationWarning)
             }
 
+            // Wrong screen detection.
+            if (wrongScreenWarning.isNotBlank()) {
+                appendLine()
+                appendLine(wrongScreenWarning)
+            }
+
+            // Banned elements list.
+            if (bannedElementIds.isNotEmpty()) {
+                appendLine()
+                appendLine("BANNED ELEMENTS (led to wrong screens, do NOT click): ${bannedElementIds.joinToString(", ") { "[$it]" }}")
+            }
+
+            // Re-planning after stuck navigation.
+            val replanHint = generateReplanningHint()
+            if (replanHint.isNotBlank()) {
+                appendLine()
+                appendLine(replanHint)
+            }
+
             // Scroll budget warning.
             if (totalScrollCount >= MAX_SCROLL_ACTIONS) {
                 appendLine()
@@ -1218,19 +1572,40 @@ class AgentLoop(
             append(formattedScreen)
             appendLine()
 
-            // Concise phase-specific guidance.
+            // Phase-specific guidance with app-specific hints.
             when (currentPhase) {
                 NavigationPhase.NAVIGATING_TO_SUPPORT -> {
-                    appendLine("GOAL: Find the path to customer support. Look for Profile/Account icon, or bottom navigation tabs.")
+                    val profile = appNavProfile
+                    if (profile != null) {
+                        // Show all remaining steps so the LLM has context for the full path.
+                        appendLine(">>> FOLLOW THESE STEPS:")
+                        profile.supportPath.forEachIndexed { i, step ->
+                            appendLine("  ${i + 1}. $step")
+                        }
+                    } else {
+                        appendLine(">>> NEXT: Click Profile/Account/More tab in the BOTTOM bar. Do NOT click products.")
+                    }
                 }
                 NavigationPhase.ON_ORDER_PAGE -> {
-                    appendLine("GOAL: You are near orders. Find the specific order and its Help/Support option.")
+                    appendLine(">>> NEXT: Find the specific order and tap Help/Support on it.")
                 }
                 NavigationPhase.ON_SUPPORT_PAGE -> {
-                    appendLine("GOAL: You are on a support/help page. Find the chat option or select the relevant issue category.")
+                    appendLine(">>> NEXT: Find Chat/Live Chat or select the issue category.")
                 }
                 NavigationPhase.IN_CHAT -> {
-                    appendLine("GOAL: You are in the support chat. Describe the issue and negotiate the resolution.")
+                    appendLine("GOAL: You are in the support chat. Follow the conversation strategy from the system prompt.")
+                    // Give context-specific guidance based on what's on screen.
+                    if (screenState != null) {
+                        val hasInput = screenState.elements.any { it.isEditable }
+                        val hasOptionButtons = screenState.elements.count {
+                            it.isClickable && (it.text?.length ?: 0) > 2
+                        } > 3 // Multiple clickable text elements = likely option menu
+                        if (hasOptionButtons && !hasInput) {
+                            appendLine(">>> The screen shows option buttons/chips. Click the most relevant one — do NOT try to type.")
+                        } else if (hasInput) {
+                            appendLine(">>> There is a text input field. Type your message, then call wait_for_response.")
+                        }
+                    }
                 }
             }
 
@@ -1254,6 +1629,7 @@ class AgentLoop(
         is AgentAction.PressBack -> "press_back"
         is AgentAction.RequestHumanReview -> "request_human_review"
         is AgentAction.MarkResolved -> "mark_resolved"
+        is AgentAction.UpdatePlan -> "update_plan"
     }
 
     /**
@@ -1282,6 +1658,12 @@ class AgentLoop(
         is AgentAction.PressBack -> """{"reason":"${action.reason.replace("\"", "\\\"")}"}"""
         is AgentAction.RequestHumanReview -> """{"reason":"${action.reason.replace("\"", "\\\"")}"}"""
         is AgentAction.MarkResolved -> """{"summary":"${action.summary.replace("\"", "\\\"")}"}"""
+        is AgentAction.UpdatePlan -> {
+            val stepsJson = action.steps.joinToString(",") { s ->
+                """{"step":"${s.step.replace("\"", "\\\"")}","status":"${s.status}"}"""
+            }
+            """{"explanation":"${action.explanation.replace("\"", "\\\"")}","steps":[$stepsJson]}"""
+        }
     }
 
     private fun logAction(action: AgentAction, description: String) {
@@ -1315,6 +1697,17 @@ class AgentLoop(
             is AgentAction.MarkResolved -> {
                 AgentLogStore.log(description, LogCategory.STATUS_UPDATE, "Issue resolved!")
             }
+            is AgentAction.UpdatePlan -> {
+                val stepsSummary = action.steps.joinToString(", ") { s ->
+                    val icon = when (s.status) {
+                        "completed" -> "[x]"
+                        "in_progress" -> "[~]"
+                        else -> "[ ]"
+                    }
+                    "$icon ${s.step.take(30)}"
+                }
+                AgentLogStore.log(description, LogCategory.STATUS_UPDATE, "Plan: $stepsSummary")
+            }
         }
     }
 
@@ -1337,6 +1730,75 @@ class AgentLoop(
             is AgentAction.PressBack -> "Press back: ${action.reason}"
             is AgentAction.RequestHumanReview -> "Request human review: ${action.reason}"
             is AgentAction.MarkResolved -> "Mark resolved: ${action.summary.take(80)}"
+            is AgentAction.UpdatePlan -> "Plan: ${action.explanation.take(60)}${if (action.explanation.length > 60) "..." else ""} (${action.steps.size} steps)"
+        }
+    }
+
+    // == LLM error classification (Codex pattern) ==============================
+
+    /**
+     * Classify an LLM error as retryable or terminal.
+     *
+     * Based on Codex's error hierarchy:
+     * - Terminal: auth failures (401/403), model not found (404), quota exceeded, invalid request
+     * - Retryable: rate limits (429), server errors (5xx), timeouts, network errors
+     */
+    private fun classifyLLMError(e: Exception): LLMErrorClass {
+        val msg = e.message ?: ""
+
+        return when {
+            // Terminal: authentication errors — retrying won't help.
+            msg.contains("401") -> LLMErrorClass(
+                retryable = false,
+                userMessage = "API key invalid or expired. Check Settings.",
+            )
+            msg.contains("403") -> LLMErrorClass(
+                retryable = false,
+                userMessage = "Access denied — check your API key permissions.",
+            )
+            // Terminal: model not found — wrong model name or deployment.
+            msg.contains("404") -> LLMErrorClass(
+                retryable = false,
+                userMessage = "Model not found — check Settings.",
+            )
+            // Terminal: quota exceeded (billing).
+            msg.contains("quota", ignoreCase = true) || msg.contains("billing", ignoreCase = true) -> LLMErrorClass(
+                retryable = false,
+                userMessage = "API quota exceeded. Check your billing.",
+            )
+            // Retryable: rate limit.
+            msg.contains("429") -> {
+                // Try to parse retry-after hint from error body (Codex pattern).
+                val retryAfter = Regex("""try again in (\d+)""", RegexOption.IGNORE_CASE)
+                    .find(msg)?.groupValues?.get(1)?.toLongOrNull()
+                LLMErrorClass(
+                    retryable = true,
+                    userMessage = "Rate limited, retrying${if (retryAfter != null) " in ${retryAfter}s" else ""}...",
+                )
+            }
+            // Retryable: server errors.
+            msg.contains("500") || msg.contains("502") || msg.contains("503") || msg.contains("504") -> LLMErrorClass(
+                retryable = true,
+                userMessage = "AI service temporarily unavailable, retrying...",
+            )
+            // Retryable: network/timeout.
+            e is java.net.SocketTimeoutException -> LLMErrorClass(
+                retryable = true,
+                userMessage = "Request timed out, retrying...",
+            )
+            e is java.net.UnknownHostException -> LLMErrorClass(
+                retryable = true,
+                userMessage = "No internet connection. Retrying...",
+            )
+            e is java.net.ConnectException -> LLMErrorClass(
+                retryable = true,
+                userMessage = "Cannot reach AI service. Retrying...",
+            )
+            // Default: retryable (give it a chance).
+            else -> LLMErrorClass(
+                retryable = true,
+                userMessage = "AI error: ${msg.take(80).ifBlank { e.javaClass.simpleName }}",
+            )
         }
     }
 
@@ -1348,6 +1810,12 @@ class AgentLoop(
         }
     }
 }
+
+/** Classification of an LLM error for retry decisions. */
+private data class LLMErrorClass(
+    val retryable: Boolean,
+    val userMessage: String,
+)
 
 // == Sub-goal tracking types ==================================================
 

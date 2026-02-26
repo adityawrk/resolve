@@ -100,7 +100,7 @@ class LLMClient(private val config: LLMConfig) {
 
         val body = JSONObject().apply {
             put("model", config.model)
-            put("max_completion_tokens", 1024)
+            put("max_completion_tokens", 512)
             put("messages", messages)
             put("tools", buildToolDefinitions())
             put("tool_choice", "required")
@@ -252,6 +252,7 @@ class LLMClient(private val config: LLMConfig) {
             "Content-Type" to "application/json",
             "x-api-key" to config.apiKey,
             "anthropic-version" to "2023-06-01",
+            "anthropic-beta" to "token-efficient-tool-use-2025-04-14",
         )
 
         val responseJson = httpPost(url, body.toString(), headers)
@@ -303,65 +304,51 @@ class LLMClient(private val config: LLMConfig) {
         return JSONArray().apply {
             put(toolDef(
                 name = "type_message",
-                description = "Type a message into a chat/message input field and send it. " +
-                    "ONLY use this when you are in a chat/support interface with a visible INPUT field. " +
-                    "Do NOT use this for search bars or non-chat inputs. " +
-                    "If there are multiple input fields, specify elementId to target the right one. " +
-                    "After sending, you should use wait_for_response to wait for a reply.",
+                description = "Type and send a message in a chat input field. Only for chat/support inputs, not search bars. Use wait_for_response after.",
                 properties = JSONObject()
                     .put("text", JSONObject()
                         .put("type", "string")
-                        .put("description", "The message to type and send. Speak as the customer in first person."))
+                        .put("description", "Message to type and send, in first person as the customer"))
                     .put("elementId", JSONObject()
                         .put("type", "integer")
-                        .put("description", "The [N] number of the INPUT field to type into (from screen state). Optional -- uses the first input field if not specified.")),
+                        .put("description", "Optional [N] of the input field to target")),
                 required = listOf("text"),
             ))
 
             put(toolDef(
                 name = "click_element",
-                description = "Click an interactive element on screen. " +
-                    "ALWAYS prefer using elementId (the [N] number shown in brackets in the screen state). " +
-                    "Fall back to label ONLY if you cannot determine the element number. " +
-                    "For icon buttons without visible text, use the content description shown in the screen state.",
+                description = "Click element by its [N] ID from screen state. ALWAYS use elementId.",
                 properties = JSONObject()
                     .put("elementId", JSONObject()
                         .put("type", "integer")
-                        .put("description", "The [N] number of the element to click, from the screen state"))
-                    .put("label", JSONObject()
-                        .put("type", "string")
-                        .put("description", "Fallback: the text label of the element, if elementId is not available"))
+                        .put("description", "REQUIRED. The [N] number from screen state."))
                     .put("expectedOutcome", JSONObject()
                         .put("type", "string")
-                        .put("description", "What you expect to happen after clicking (e.g., 'Opens order detail page')")),
-                required = listOf("expectedOutcome"),
+                        .put("description", "Expected result")),
+                required = listOf("elementId", "expectedOutcome"),
             ))
 
             put(toolDef(
                 name = "scroll_down",
-                description = "Scroll down to reveal more content below the current viewport. " +
-                    "Use when you need to find a specific item (e.g., an order, a Help button) that may be below. " +
-                    "Do NOT scroll to browse — only scroll when you have a specific target in mind.",
+                description = "Scroll down to find a specific element below. Do not scroll to browse.",
                 properties = JSONObject().put("reason", JSONObject()
                     .put("type", "string")
-                    .put("description", "What you are looking for by scrolling")),
+                    .put("description", "What you are looking for")),
                 required = listOf("reason"),
             ))
 
             put(toolDef(
                 name = "scroll_up",
-                description = "Scroll up to see earlier content above the current viewport.",
+                description = "Scroll up to see content above.",
                 properties = JSONObject().put("reason", JSONObject()
                     .put("type", "string")
-                    .put("description", "What you are looking for by scrolling up")),
+                    .put("description", "What you are looking for")),
                 required = listOf("reason"),
             ))
 
             put(toolDef(
                 name = "wait_for_response",
-                description = "Wait 5 seconds for the screen to update. " +
-                    "Use after sending a chat message to wait for the support agent/bot to reply. " +
-                    "Also use after clicking something that triggers a page load.",
+                description = "Wait 5s for screen to update. Use after sending a chat message or triggering a page load.",
                 properties = JSONObject().put("reason", JSONObject()
                     .put("type", "string")
                     .put("description", "What you are waiting for")),
@@ -370,56 +357,66 @@ class LLMClient(private val config: LLMConfig) {
 
             put(toolDef(
                 name = "upload_file",
-                description = "Find and click an attachment/upload button to upload evidence. " +
-                    "Use when the support agent asks for proof or when evidence would strengthen the case.",
+                description = "Click an attachment/upload button to upload evidence.",
                 properties = JSONObject().put("fileDescription", JSONObject()
                     .put("type", "string")
-                    .put("description", "Description of the file to upload")),
+                    .put("description", "Description of file to upload")),
                 required = listOf("fileDescription"),
             ))
 
             put(toolDef(
                 name = "press_back",
-                description = "Press the Android back button. Use to: " +
-                    "(1) dismiss a popup, dialog, or overlay, " +
-                    "(2) go back to the previous screen if you navigated to the wrong place, " +
-                    "(3) close a keyboard or bottom sheet.",
+                description = "Press Android back button. Use to dismiss popups, go back, or close keyboard.",
                 properties = JSONObject().put("reason", JSONObject()
                     .put("type", "string")
-                    .put("description", "Why pressing back and where you expect to go")),
+                    .put("description", "Why pressing back")),
                 required = listOf("reason"),
             ))
 
             put(toolDef(
                 name = "request_human_review",
-                description = "Pause and ask the customer for input. Use when: " +
-                    "(1) support asks for info you don't have (OTP, last 4 digits of card, etc.), " +
-                    "(2) support offers multiple resolution options and you need customer to choose, " +
-                    "(3) a CAPTCHA or verification step blocks progress.",
+                description = "Pause for customer input. Use when support asks for info you don't have (OTP, card digits), offers choices, or CAPTCHA blocks.",
                 properties = JSONObject()
                     .put("reason", JSONObject()
                         .put("type", "string")
-                        .put("description", "Why the customer needs to intervene"))
+                        .put("description", "Why customer needs to intervene"))
                     .put("needsInput", JSONObject()
                         .put("type", "boolean")
-                        .put("description", "Whether the customer needs to type a response"))
+                        .put("description", "Whether customer needs to type"))
                     .put("inputPrompt", JSONObject()
                         .put("type", "string")
-                        .put("description", "Specific question to ask the customer")),
+                        .put("description", "Question to ask customer")),
                 required = listOf("reason"),
             ))
 
             put(toolDef(
                 name = "mark_resolved",
-                description = "Mark the case as RESOLVED. Use ONLY when: " +
-                    "(1) the support agent has explicitly confirmed the refund/resolution, " +
-                    "(2) a ticket/reference number has been provided, or " +
-                    "(3) the desired outcome has been clearly achieved. " +
-                    "Do NOT use this prematurely — wait for actual confirmation.",
+                description = "Mark case RESOLVED. Only when support explicitly confirmed resolution/refund, or ticket number provided. Never use prematurely.",
                 properties = JSONObject().put("summary", JSONObject()
                     .put("type", "string")
-                    .put("description", "Summary of the resolution including any reference numbers or timelines given")),
+                    .put("description", "Resolution summary with reference numbers/timelines")),
                 required = listOf("summary"),
+            ))
+
+            put(toolDef(
+                name = "update_plan",
+                description = "Record your plan. Use at the start or when your approach changes. Does NOT perform an action — call another tool after.",
+                properties = JSONObject()
+                    .put("explanation", JSONObject()
+                        .put("type", "string")
+                        .put("description", "Brief explanation of your current strategy"))
+                    .put("steps", JSONObject()
+                        .put("type", "array")
+                        .put("description", "Ordered list of planned steps")
+                        .put("items", JSONObject()
+                            .put("type", "object")
+                            .put("properties", JSONObject()
+                                .put("step", JSONObject().put("type", "string"))
+                                .put("status", JSONObject()
+                                    .put("type", "string")
+                                    .put("enum", JSONArray().put("pending").put("in_progress").put("completed"))))
+                            .put("required", JSONArray().put("step")))),
+                required = listOf("steps"),
             ))
         }
     }
@@ -479,10 +476,10 @@ class LLMClient(private val config: LLMConfig) {
         return when (name) {
             "type_message" -> AgentAction.TypeMessage(
                 text = input.getString("text"),
-                elementId = if (input.has("elementId")) input.optInt("elementId", -1).takeIf { it > 0 } else null,
+                elementId = parseElementId(input, "elementId"),
             )
             "click_element" -> AgentAction.ClickElement(
-                elementId = if (input.has("elementId")) input.optInt("elementId", -1).takeIf { it > 0 } else null,
+                elementId = parseElementId(input, "elementId"),
                 label = input.optString("label", "").ifBlank { null },
                 expectedOutcome = input.optString("expectedOutcome", ""),
             )
@@ -515,10 +512,46 @@ class LLMClient(private val config: LLMConfig) {
             "mark_resolved" -> AgentAction.MarkResolved(
                 summary = input.getString("summary"),
             )
+            "update_plan" -> {
+                val explanation = input.optString("explanation", "")
+                val stepsArray = input.optJSONArray("steps")
+                val steps = mutableListOf<PlanStep>()
+                if (stepsArray != null) {
+                    for (j in 0 until stepsArray.length()) {
+                        val stepObj = stepsArray.optJSONObject(j)
+                        if (stepObj != null) {
+                            steps.add(PlanStep(
+                                step = stepObj.optString("step", ""),
+                                status = stepObj.optString("status", "pending"),
+                            ))
+                        }
+                    }
+                }
+                AgentAction.UpdatePlan(explanation = explanation, steps = steps)
+            }
             else -> {
                 Log.w(tag, "Unknown tool: $name")
                 AgentAction.Wait(reason = "Unknown tool: $name")
             }
+        }
+    }
+
+    /**
+     * Parse an element ID from a JSON field, handling both int and string representations.
+     * LLMs may return `"elementId": 42` or `"elementId": "42"`.
+     */
+    private fun parseElementId(input: JSONObject, key: String): Int? {
+        if (!input.has(key)) return null
+        return try {
+            val raw = input.get(key)
+            when (raw) {
+                is Int -> raw.takeIf { it > 0 }
+                is Long -> raw.toInt().takeIf { it > 0 }
+                is String -> raw.trim().toIntOrNull()?.takeIf { it > 0 }
+                else -> input.optInt(key, -1).takeIf { it > 0 }
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -528,8 +561,8 @@ class LLMClient(private val config: LLMConfig) {
         val connection = URL(url).openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = "POST"
-            connection.connectTimeout = 30_000
-            connection.readTimeout = 60_000  // LLM calls can be slow.
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 45_000  // LLM calls can be slow but 45s is plenty.
             connection.doInput = true
             connection.doOutput = true
 
@@ -657,7 +690,25 @@ sealed class AgentAction {
         val inputPrompt: String? = null,
     ) : AgentAction()
     data class MarkResolved(val summary: String) : AgentAction()
+
+    /**
+     * Plan tool (Codex pattern): no-op that forces structured LLM reasoning.
+     * The plan is recorded in conversation history and shown to the user,
+     * but has no mechanical effect on the agent.
+     */
+    data class UpdatePlan(
+        val explanation: String,
+        val steps: List<PlanStep>,
+    ) : AgentAction()
 }
+
+/**
+ * A single step in an LLM-generated plan (Codex update_plan pattern).
+ */
+data class PlanStep(
+    val step: String,
+    val status: String = "pending", // pending | in_progress | completed
+)
 
 data class AgentDecision(
     val action: AgentAction,

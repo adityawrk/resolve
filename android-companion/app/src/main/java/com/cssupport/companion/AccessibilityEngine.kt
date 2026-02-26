@@ -93,6 +93,46 @@ class AccessibilityEngine(private val service: AccessibilityService) {
             }
         }
 
+        // Fallback: if rootInActiveWindow is null, search all windows for any root.
+        // Prefer windows matching the target app package (popups, drawers, dialogs).
+        // Avoid systemui unless it's the only option.
+        if (rootNode == null) {
+            try {
+                var bestRoot: AccessibilityNodeInfo? = null
+                var bestPkg: String? = null
+                for (window in service.windows) {
+                    val windowRoot = window.root ?: continue
+                    val pkg = windowRoot.packageName?.toString() ?: ""
+                    // Prefer target app package.
+                    if (eventPackage != null && pkg == eventPackage) {
+                        if (bestRoot != null) safeRecycle(bestRoot)
+                        bestRoot = windowRoot
+                        bestPkg = pkg
+                        break // Exact match, stop searching.
+                    }
+                    // Skip our own overlay and systemui/launcher.
+                    if (pkg == "com.cssupport.companion") {
+                        safeRecycle(windowRoot)
+                        continue
+                    }
+                    val isSystemWindow = pkg.contains("systemui") || pkg.contains("launcher")
+                    if (bestRoot == null || (!isSystemWindow && (bestPkg?.contains("systemui") == true))) {
+                        if (bestRoot != null) safeRecycle(bestRoot)
+                        bestRoot = windowRoot
+                        bestPkg = pkg
+                    } else {
+                        safeRecycle(windowRoot)
+                    }
+                }
+                if (bestRoot != null) {
+                    rootNode = bestRoot
+                    Log.d(tag, "Found root via service.windows: $bestPkg")
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to enumerate windows for fallback: ${e.message}")
+            }
+        }
+
         if (rootNode == null) {
             Log.w(tag, "captureScreenState: no valid root node found")
             return ScreenState(
@@ -459,11 +499,11 @@ class AccessibilityEngine(private val service: AccessibilityService) {
      * @return the stable [ScreenState], or the last captured state on timeout
      */
     suspend fun waitForStableScreen(
-        maxWaitMs: Long = 5000,
-        pollIntervalMs: Long = 500,
+        maxWaitMs: Long = 3000,
+        pollIntervalMs: Long = 300,
     ): ScreenState {
-        // Initial wait to let animations/transitions begin.
-        delay(pollIntervalMs)
+        // Initial wait to let animations/transitions begin (250ms is ~15 frames at 60fps).
+        delay(250)
 
         var previousFingerprint = ""
         var lastState = captureScreenState()
@@ -876,22 +916,22 @@ data class ScreenState(
     }
 
     /**
-     * Format the screen state as a spatially-aware, semantically grouped description for the LLM.
+     * Format the screen state for the LLM with navigation-first presentation.
      *
-     * Uses numbered element references ([N]) for every element so the LLM can
-     * unambiguously reference elements by index instead of by text label.
+     * ## Key design principles (research-backed):
+     * 1. **Navigation elements shown FIRST** with `>>>` markers (primacy effect)
+     * 2. **Product/content elements lose [N] indices** when navigating — can't click what has no ID
+     * 3. **`isNavigationElement()`** classifier separates nav from noise
+     * 4. **Phase-aware**: During NAVIGATING_TO_SUPPORT, products are collapsed.
+     *    During IN_CHAT, all elements are shown.
      *
-     * Improvements:
-     * 1. Numbered element IDs for unambiguous action grounding
-     * 2. Spatial zones (top-bar, content, bottom-bar)
-     * 3. Semantic element types + selected/checked state display
-     * 4. Position hints for ambiguous elements
-     * 5. Scroll extent hints
-     * 6. Compact format to minimize token usage
+     * The system prompt tells the LLM: "ONLY click elements marked >>>".
+     * This mechanical rule is far more reliable than "don't click products".
      *
      * @param previousScreen optional previous screen for marking new elements
+     * @param collapseContent true to hide product/content [N] indices (navigation phases)
      */
-    fun formatForLLM(previousScreen: ScreenState? = null): String {
+    fun formatForLLM(previousScreen: ScreenState? = null, collapseContent: Boolean = false): String {
         val sb = StringBuilder()
         sb.appendLine("Package: $packageName")
         if (activityName != null) {
@@ -904,93 +944,171 @@ data class ScreenState(
         val screenWidth = elements.maxOfOrNull { it.bounds.right } ?: 1080
         val screenHeight = elements.maxOfOrNull { it.bounds.bottom } ?: 2400
 
-        // Access the element index (builds it on first call).
         val indexedElements = elementIndex
         if (indexedElements.isEmpty()) {
-            sb.appendLine("(empty screen -- no elements)")
+            sb.appendLine("(empty screen)")
             return sb.toString()
         }
 
-        // Reverse map: UIElement -> index.
-        val elementToId = indexedElements.entries.associate { (id, el) -> el to id }
-
-        // Previous element labels for marking new elements.
         val prevLabels = previousScreen?.elements?.mapNotNull { el ->
             (el.text ?: el.contentDescription)?.take(40)
         }?.toSet()
 
-        // Partition indexed elements into zones.
+        // Partition into zones.
         val topBarThreshold = screenHeight / 8
         val bottomBarThreshold = screenHeight * 7 / 8
 
-        val topBarEntries = indexedElements.filter { (_, el) ->
+        val topBar = indexedElements.filter { (_, el) ->
             el.bounds.centerY() < topBarThreshold
         }.toSortedMap()
-        val contentEntries = indexedElements.filter { (_, el) ->
+        val content = indexedElements.filter { (_, el) ->
             el.bounds.centerY() in topBarThreshold..bottomBarThreshold
         }.toSortedMap()
-        val bottomBarEntries = indexedElements.filter { (_, el) ->
+        val bottomBar = indexedElements.filter { (_, el) ->
             el.bounds.centerY() > bottomBarThreshold
         }.toSortedMap()
 
-        // Screen pattern.
-        val allElements = indexedElements.values.toList()
-        val screenPattern = detectScreenPattern(allElements)
+        val screenPattern = detectScreenPattern(indexedElements.values.toList())
         if (screenPattern.isNotBlank()) {
             sb.appendLine("Layout: $screenPattern")
         }
         sb.appendLine()
 
-        // Top bar.
-        if (topBarEntries.isNotEmpty()) {
-            sb.appendLine("[TOP BAR]")
-            formatIndexedElements(topBarEntries, sb, screenWidth, prevLabels)
-            sb.appendLine()
-        }
-
-        // Content.
-        if (contentEntries.isNotEmpty()) {
-            sb.appendLine("[CONTENT]")
-
-            // Cap text-only items to prevent token explosion.
-            var textCount = 0
-            val maxTextItems = 25
-
-            for ((id, el) in contentEntries) {
-                val isTextOnly = !el.isClickable && !el.isEditable && !el.isScrollable
-                if (isTextOnly) {
-                    textCount++
-                    if (textCount > maxTextItems) continue
-                }
+        // === NAVIGATION FIRST (bottom bar tabs) ===
+        // Bottom bar is shown first because it almost always contains the path to support.
+        // Primacy effect: LLM pays most attention to first elements.
+        if (bottomBar.isNotEmpty()) {
+            sb.appendLine("[NAVIGATION -- click these to find support]")
+            for ((id, el) in bottomBar) {
+                val label = el.text ?: el.contentDescription
+                // Show unlabeled clickable icons — they may be navigation.
+                if (label.isNullOrBlank() && !el.isClickable) continue
                 val line = formatSingleElement(id, el, screenWidth, prevLabels)
-                sb.appendLine("  $line")
-            }
-            if (textCount > maxTextItems) {
-                sb.appendLine("  (${textCount - maxTextItems} more text items hidden)")
-            }
-
-            // Scroll extent hints.
-            val scrollables = contentEntries.values.filter { it.isScrollable }
-            if (scrollables.isNotEmpty()) {
-                sb.appendLine("  (${scrollables.size} scrollable area${if (scrollables.size > 1) "s" else ""}, can scroll down)")
+                sb.appendLine("  >>> $line")
             }
             sb.appendLine()
         }
 
-        // Bottom bar.
-        if (bottomBarEntries.isNotEmpty()) {
-            sb.appendLine("[BOTTOM BAR]")
-            formatIndexedElements(bottomBarEntries, sb, screenWidth, prevLabels)
+        // === TOP BAR ===
+        if (topBar.isNotEmpty()) {
+            sb.appendLine("[TOP BAR]")
+            for ((id, el) in topBar) {
+                val label = el.text ?: el.contentDescription
+                // Show unlabeled clickable icons — they're often critical nav (sidebar, profile, menu).
+                if (label.isNullOrBlank() && !el.isClickable) continue
+                val isNav = isNavigationElement(el)
+                val prefix = if (isNav) ">>>" else "   "
+                val line = formatSingleElement(id, el, screenWidth, prevLabels)
+                sb.appendLine("  $prefix $line")
+            }
             sb.appendLine()
+        }
+
+        // === CONTENT ===
+        if (content.isNotEmpty()) {
+            // Separate navigation-relevant, input fields, and noise.
+            val navContent = content.filter { (_, el) -> isNavigationElement(el) }
+            val inputContent = content.filter { (_, el) -> el.isEditable }
+            val otherContent = content.filter { (_, el) ->
+                !isNavigationElement(el) && !el.isEditable
+            }
+
+            // Always show navigation-relevant content and input fields with >>> and [N].
+            if (navContent.isNotEmpty() || inputContent.isNotEmpty()) {
+                sb.appendLine("[CONTENT]")
+                for ((id, el) in navContent) {
+                    val line = formatSingleElement(id, el, screenWidth, prevLabels)
+                    sb.appendLine("  >>> $line")
+                }
+                for ((id, el) in inputContent) {
+                    val line = formatSingleElement(id, el, screenWidth, prevLabels)
+                    sb.appendLine("  >>> $line")
+                }
+                sb.appendLine()
+            }
+
+            // Other content: collapse when navigating, show when on support/chat pages.
+            if (otherContent.isNotEmpty()) {
+                if (collapseContent) {
+                    // Navigating phase: collapse products to summary, NO [N] IDs.
+                    val labels = otherContent.values
+                        .mapNotNull { it.text ?: it.contentDescription }
+                        .filter { it.length in 2..60 }
+                        .take(8)
+                    sb.appendLine("[${otherContent.size} other items -- NOT paths to support]")
+                    if (labels.isNotEmpty()) {
+                        sb.appendLine("  ~ ${labels.joinToString(", ") { "\"$it\"" }}")
+                    }
+                } else {
+                    // Support/chat/order phase: show all with [N] IDs.
+                    if (navContent.isEmpty() && inputContent.isEmpty()) {
+                        sb.appendLine("[CONTENT]")
+                    }
+                    var itemCount = 0
+                    for ((id, el) in otherContent) {
+                        itemCount++
+                        if (itemCount > 30) {
+                            sb.appendLine("  (${otherContent.size - 30} more items...)")
+                            break
+                        }
+                        val line = formatSingleElement(id, el, screenWidth, prevLabels)
+                        sb.appendLine("  $line")
+                    }
+                }
+                sb.appendLine()
+            }
+
+            // Scroll hint.
+            val scrollables = content.values.filter { it.isScrollable }
+            if (scrollables.isNotEmpty()) {
+                sb.appendLine("  (scrollable)")
+            }
         }
 
         if (focusedElement != null) {
             val label = focusedElement.text ?: focusedElement.contentDescription ?: focusedElement.className
-            val focusId = elementToId[focusedElement]
-            sb.appendLine("Focused: ${if (focusId != null) "[$focusId] " else ""}$label")
+            sb.appendLine("Focused: $label")
         }
 
         return sb.toString()
+    }
+
+    /**
+     * Classify whether an element is a navigation element (leads to account/orders/help)
+     * vs. a content/product element (food items, deals, listings).
+     *
+     * This is the key classifier that determines which elements get `>>>` markers
+     * and which get collapsed. Navigation elements are always clickable by the LLM.
+     */
+    private fun isNavigationElement(el: UIElement): Boolean {
+        val label = (el.text ?: el.contentDescription ?: "").lowercase()
+        val className = el.className.lowercase()
+
+        // Tabs are almost always navigation.
+        if (className.contains("tab")) return true
+
+        // Navigation keywords.
+        val navKeywords = listOf(
+            "account", "profile", "more", "settings", "me", "my account",
+            "orders", "order history", "my orders", "your orders", "past orders",
+            "order details", "track order",
+            "help", "support", "contact", "get help", "report", "issue",
+            "contact us", "contact store", "queries",
+            "chat", "live chat", "talk to us", "message us",
+            "back", "close", "cancel", "navigate up", "home", "skip",
+            "sign in", "log in", "sign out", "log out", "login",
+            "refund", "return", "complaint", "feedback",
+            "main menu",
+        )
+        if (navKeywords.any { label.contains(it) }) return true
+
+        // Icon buttons (unlabeled image buttons) in top/bottom bars are often navigation.
+        if ((label == "unlabeled" || label.isBlank())
+            && (className.contains("imagebutton") || className.contains("imageview"))
+            && el.isClickable
+        ) return true
+
+        return false
     }
 
     /**
@@ -1016,11 +1134,12 @@ data class ScreenState(
 
         // Label.
         val label = el.text ?: el.contentDescription ?: "unlabeled"
+        val isUnlabeled = label == "unlabeled"
         val truncated = if (label.length > 120) label.take(117) + "..." else label
         sb.append("\"$truncated\"")
 
-        // Position hint.
-        sb.append(positionHint(el.bounds, screenWidth))
+        // Position hint (fine-grained for unlabeled elements).
+        sb.append(positionHint(el.bounds, screenWidth, isUnlabeled))
 
         // State annotations.
         if (el.isCheckable && el.isChecked == true) sb.append(" [CHECKED]")
@@ -1137,12 +1256,24 @@ data class ScreenState(
      * Generate a concise position hint (e.g., "(left)", "(right)", "(center)").
      * Helps the LLM distinguish between elements with similar labels.
      */
-    private fun positionHint(bounds: Rect, screenWidth: Int): String {
+    private fun positionHint(bounds: Rect, screenWidth: Int, isUnlabeled: Boolean = false): String {
         val centerX = bounds.centerX()
-        return when {
-            centerX < screenWidth / 3 -> " (left)"
-            centerX > screenWidth * 2 / 3 -> " (right)"
-            else -> ""
+        // For unlabeled elements, use fine-grained 5-zone hints so the LLM can
+        // distinguish between multiple unlabeled icons in the same bar.
+        return if (isUnlabeled) {
+            when {
+                centerX > screenWidth * 85 / 100 -> " (far-right)"
+                centerX > screenWidth * 2 / 3 -> " (right)"
+                centerX < screenWidth * 15 / 100 -> " (far-left)"
+                centerX < screenWidth / 3 -> " (left)"
+                else -> " (center)"
+            }
+        } else {
+            when {
+                centerX < screenWidth / 3 -> " (left)"
+                centerX > screenWidth * 2 / 3 -> " (right)"
+                else -> ""
+            }
         }
     }
 

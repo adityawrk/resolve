@@ -2,28 +2,53 @@ package com.cssupport.companion
 
 import android.content.ComponentName
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 
 /**
- * Single-step onboarding: shows clear steps, opens accessibility settings,
- * auto-advances to MainActivity when the user returns with it enabled.
+ * Two-phase onboarding:
  *
- * When the user returns with accessibility enabled, shows brief "All set!"
- * feedback before navigating, so they know it worked.
+ * **Phase 1** (Android 13+ sideloaded apps only):
+ * Guide the user to "Allow restricted settings" in App Info. Without this,
+ * Samsung/Android blocks sideloaded apps from enabling accessibility services.
+ *
+ * **Phase 2** (all devices):
+ * Guide the user to enable the Resolve accessibility service.
+ *
+ * Auto-advances to MainActivity when the user returns with accessibility enabled.
  */
 class OnboardingActivity : AppCompatActivity() {
 
     private lateinit var btnAllowAccess: MaterialButton
+    private lateinit var cardRestricted: MaterialCardView
+    private lateinit var btnOpenAppInfo: MaterialButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_onboarding)
 
         btnAllowAccess = findViewById(R.id.btnAllowAccess)
+        cardRestricted = findViewById(R.id.cardRestricted)
+        btnOpenAppInfo = findViewById(R.id.btnOpenAppInfo)
+
+        // Show the restricted settings card on Android 13+ (API 33).
+        // Sideloaded apps (installed from Google Drive APK) are blocked from
+        // enabling accessibility services unless the user explicitly allows
+        // restricted settings in App Info.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            cardRestricted.visibility = View.VISIBLE
+        }
+
+        btnOpenAppInfo.setOnClickListener {
+            openAppInfoSettings()
+        }
+
         btnAllowAccess.setOnClickListener {
             openAccessibilitySettings()
         }
@@ -55,6 +80,27 @@ class OnboardingActivity : AppCompatActivity() {
                     finish()
                 }
             }, 800)
+        }
+    }
+
+    /**
+     * Open the App Info page for this app.
+     * On this page, the user can tap the three-dot menu (⋮) in the top-right
+     * and select "Allow restricted settings".
+     */
+    private fun openAppInfoSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", packageName, null)
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            // Fallback: open general app settings.
+            try {
+                startActivity(Intent(Settings.ACTION_APPLICATION_SETTINGS))
+            } catch (_: Exception) {
+                // Nothing we can do.
+            }
         }
     }
 

@@ -28,6 +28,9 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var authManager: AuthManager
 
+    /** Masked placeholder shown when an API key is saved but not displayed for security. */
+    private var maskedApiKeyPlaceholder: String? = null
+
     // Provider section
     private lateinit var currentProviderText: TextView
     private lateinit var btnSwitchAuth: MaterialButton
@@ -195,7 +198,17 @@ class SettingsActivity : AppCompatActivity() {
             )
             apiEndpointInput.setText(config.endpoint ?: "")
             apiModelInput.setText(config.model)
-            // Don't pre-fill the key for security.
+
+            // Show a masked version of the API key so the user knows it's saved.
+            // Format: "••••••••xxxx" (last 4 chars visible).
+            val savedKey = authManager.getSavedApiKey()
+            if (savedKey != null && savedKey.length >= 4) {
+                val lastFour = savedKey.takeLast(4)
+                maskedApiKeyPlaceholder = "••••••••$lastFour"
+                apiKeyInput.setText(maskedApiKeyPlaceholder)
+            } else {
+                maskedApiKeyPlaceholder = null
+            }
         } else if (authManager.isOAuthTokenValid()) {
             currentProviderText.text = getString(R.string.settings_provider_oauth)
         } else {
@@ -230,14 +243,29 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun saveApiConfig() {
         val providerText = providerDropdown.text.toString()
-        val key = apiKeyInput.text?.toString()?.trim().orEmpty()
+        val rawKey = apiKeyInput.text?.toString()?.trim().orEmpty()
         val model = apiModelInput.text?.toString()?.trim().orEmpty()
         val endpoint = apiEndpointInput.text?.toString()?.trim().orEmpty()
 
-        if (key.length < 4) {
-            Toast.makeText(this, "Enter a valid API key", Toast.LENGTH_SHORT).show()
-            return
+        // If the key field still shows the masked placeholder, preserve the existing key.
+        // The user only needs to re-enter the key if they want to change it.
+        val key: String
+        if (rawKey == maskedApiKeyPlaceholder || rawKey.isBlank()) {
+            val existingKey = authManager.getSavedApiKey()
+            if (existingKey != null) {
+                key = existingKey
+            } else {
+                Toast.makeText(this, "Enter a valid API key", Toast.LENGTH_SHORT).show()
+                return
+            }
+        } else {
+            if (rawKey.length < 4) {
+                Toast.makeText(this, "Enter a valid API key", Toast.LENGTH_SHORT).show()
+                return
+            }
+            key = rawKey
         }
+
         if (model.isBlank()) {
             Toast.makeText(this, "Enter a model name", Toast.LENGTH_SHORT).show()
             return

@@ -51,6 +51,7 @@ class CompanionAgentService : Service() {
                 ACTION_STOP -> {
                     Log.i(tag, "Received ACTION_STOP")
                     AgentLogStore.log("Service stopping")
+                    SupportAccessibilityService.instance?.hideFloatingStopButton()
                     currentAgentLoop?.pause()
                     currentAgentJob?.cancel()
                     stopSelf()
@@ -126,6 +127,7 @@ class CompanionAgentService : Service() {
 
     override fun onDestroy() {
         running = false
+        SupportAccessibilityService.instance?.hideFloatingStopButton()
         currentAgentJob?.cancel()
         scope.cancel()
         super.onDestroy()
@@ -236,8 +238,13 @@ class CompanionAgentService : Service() {
         updateNotification("Working in $targetPlatform...")
         AgentLogStore.log("Agent loop running", LogCategory.STATUS_UPDATE, "Agent is working...")
 
+        // Show floating stop button over all apps.
+        SupportAccessibilityService.instance?.showFloatingStopButton()
+
         currentAgentJob = scope.launch {
             val result = agentLoop.run()
+            // Hide the floating stop button on any terminal state.
+            SupportAccessibilityService.instance?.hideFloatingStopButton()
             when (result) {
                 is AgentResult.Resolved -> {
                     AgentLogStore.log("Case resolved: ${result.summary}", LogCategory.TERMINAL_RESOLVED, "Issue resolved!")

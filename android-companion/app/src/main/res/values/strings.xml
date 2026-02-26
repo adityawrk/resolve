@@ -26,6 +26,15 @@
   <string name="onboarding_step_2">Tap on it to open its settings</string>
   <string name="onboarding_step_3">Turn the switch ON and confirm when asked</string>
   <string name="onboarding_allow_access">Open Accessibility Settings</string>
+  <!-- Restricted settings (Android 13+ sideloaded apps) -->
+  <string name="onboarding_restricted_title">First: Allow restricted settings</string>
+  <string name="onboarding_restricted_subtitle">Since this app was installed outside the Play Store, Android blocks some permissions by default.</string>
+  <string name="onboarding_restricted_step_1">Tap the button below to open App Info</string>
+  <string name="onboarding_restricted_step_2">Tap the ⋮ menu (top-right corner)</string>
+  <string name="onboarding_restricted_step_3">Tap \"Allow restricted settings\"</string>
+  <string name="onboarding_restricted_step_4">Come back here, then continue to Step 2</string>
+  <string name="onboarding_open_app_info">Open App Info</string>
+  <string name="onboarding_restricted_done">Done — Now enable accessibility</string>
 
   <!-- Main / Issue Submission -->
   <string name="greeting_morning">Good morning</string>

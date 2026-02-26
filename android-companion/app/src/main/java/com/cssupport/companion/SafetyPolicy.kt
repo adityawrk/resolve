@@ -51,6 +51,7 @@ class SafetyPolicy(
             is AgentAction.ScrollUp -> PolicyResult.Allowed
             is AgentAction.PressBack -> PolicyResult.Allowed
             is AgentAction.UploadFile -> PolicyResult.Allowed
+            is AgentAction.UpdatePlan -> PolicyResult.Allowed // No-op, always safe.
         }
     }
 
@@ -148,7 +149,7 @@ class SafetyPolicy(
 
     companion object {
         const val MAX_ITERATIONS = 30
-        const val MIN_ACTION_DELAY_MS = 2000L
+        const val MIN_ACTION_DELAY_MS = 800L
         const val MAX_MESSAGE_LENGTH = 2000
 
         // SSN: xxx-xx-xxxx or 9 consecutive digits.

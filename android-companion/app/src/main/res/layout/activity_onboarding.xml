@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- ================================================================
-     Onboarding — Single-step accessibility permission.
-     Steps are always visible so the user knows what to do
-     BEFORE they leave the app.
+     Onboarding — Two-phase permission setup.
+     Phase 1 (Android 13+ only): Allow restricted settings.
+     Phase 2: Enable accessibility service.
      ================================================================ -->
 
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -12,9 +12,14 @@
   android:background="?attr/colorSurface"
   android:fitsSystemWindows="true">
 
-  <LinearLayout
+  <ScrollView
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:fillViewport="true">
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
     android:orientation="vertical"
     android:paddingHorizontal="@dimen/page_horizontal"
     android:paddingTop="@dimen/space_3xl"
@@ -38,11 +43,173 @@
       android:textColor="?attr/colorOnSurface"
       android:gravity="center" />
 
-    <!-- Subtitle -->
-    <TextView
+    <!-- ============================================================
+         Phase 1: Restricted settings (Android 13+ sideloaded apps)
+         Hidden by default, shown programmatically on API 33+.
+         ============================================================ -->
+    <com.google.android.material.card.MaterialCardView
+      android:id="@+id/cardRestricted"
       android:layout_width="match_parent"
       android:layout_height="wrap_content"
-      android:layout_marginTop="@dimen/space_sm"
+      android:layout_marginTop="@dimen/space_xl"
+      android:visibility="gone"
+      app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+      app:cardCornerRadius="@dimen/radius_button"
+      app:strokeWidth="0dp">
+
+      <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/card_padding">
+
+        <!-- Section label -->
+        <TextView
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:text="@string/onboarding_restricted_title"
+          android:textAppearance="?attr/textAppearanceTitleSmall"
+          android:textColor="?attr/colorPrimary"
+          android:layout_marginBottom="@dimen/space_xs" />
+
+        <TextView
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:text="@string/onboarding_restricted_subtitle"
+          android:textAppearance="?attr/textAppearanceBodySmall"
+          android:textColor="?attr/colorOnSurfaceVariant"
+          android:layout_marginBottom="@dimen/space_base" />
+
+        <!-- Step 1 -->
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="horizontal"
+          android:gravity="center_vertical">
+
+          <TextView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="1"
+            android:textAppearance="?attr/textAppearanceLabelLarge"
+            android:textColor="?attr/colorOnPrimary"
+            android:background="@drawable/bg_step_circle"
+            android:gravity="center" />
+
+          <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/onboarding_restricted_step_1"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurface" />
+        </LinearLayout>
+
+        <!-- Step 2 -->
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="horizontal"
+          android:gravity="center_vertical"
+          android:layout_marginTop="@dimen/space_xs">
+
+          <TextView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="2"
+            android:textAppearance="?attr/textAppearanceLabelLarge"
+            android:textColor="?attr/colorOnPrimary"
+            android:background="@drawable/bg_step_circle"
+            android:gravity="center" />
+
+          <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/onboarding_restricted_step_2"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurface" />
+        </LinearLayout>
+
+        <!-- Step 3 -->
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="horizontal"
+          android:gravity="center_vertical"
+          android:layout_marginTop="@dimen/space_xs">
+
+          <TextView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="3"
+            android:textAppearance="?attr/textAppearanceLabelLarge"
+            android:textColor="?attr/colorOnPrimary"
+            android:background="@drawable/bg_step_circle"
+            android:gravity="center" />
+
+          <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/onboarding_restricted_step_3"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurface" />
+        </LinearLayout>
+
+        <!-- Step 4 -->
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="horizontal"
+          android:gravity="center_vertical"
+          android:layout_marginTop="@dimen/space_xs">
+
+          <TextView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="4"
+            android:textAppearance="?attr/textAppearanceLabelLarge"
+            android:textColor="?attr/colorOnPrimary"
+            android:background="@drawable/bg_step_circle"
+            android:gravity="center" />
+
+          <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/onboarding_restricted_step_4"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurface" />
+        </LinearLayout>
+
+        <!-- Open App Info button -->
+        <com.google.android.material.button.MaterialButton
+          android:id="@+id/btnOpenAppInfo"
+          style="@style/Widget.Material3.Button.TonalButton"
+          android:layout_width="match_parent"
+          android:layout_height="48dp"
+          android:layout_marginTop="@dimen/space_base"
+          android:text="@string/onboarding_open_app_info"
+          android:textAllCaps="false" />
+
+      </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- ============================================================
+         Phase 2: Accessibility settings (always shown)
+         ============================================================ -->
+
+    <!-- Subtitle -->
+    <TextView
+      android:id="@+id/txtAccessibilitySubtitle"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="@dimen/space_xl"
       android:text="@string/onboarding_subtitle"
       android:textAppearance="?attr/textAppearanceBodyMedium"
       android:textColor="?attr/colorOnSurfaceVariant"
@@ -53,7 +220,7 @@
     <com.google.android.material.card.MaterialCardView
       android:layout_width="match_parent"
       android:layout_height="wrap_content"
-      android:layout_marginTop="@dimen/space_xl"
+      android:layout_marginTop="@dimen/space_base"
       app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
       app:cardCornerRadius="@dimen/radius_button"
       app:strokeWidth="0dp">
@@ -162,4 +329,5 @@
       android:text="@string/onboarding_allow_access" />
 
   </LinearLayout>
+  </ScrollView>
 </FrameLayout>
