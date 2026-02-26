@@ -1,8 +1,8 @@
 # Resolve - AI Customer Support Agent
 
-Open-source AI agent that handles customer support chats **on behalf of the customer**.
+Open-source Android agent that handles customer support chats **on behalf of the customer**.
 
-You describe your issue once with evidence, and Resolve takes over: it navigates the support chat, clicks buttons, types messages, uploads files, and resolves your issue end-to-end. No more waiting in chat queues, repeating yourself to bots, or clicking through endless menus.
+You describe your issue once with evidence, and Resolve takes over: it navigates the app's support flow, clicks buttons, types messages, uploads files, and resolves your issue end-to-end. No more waiting in chat queues, repeating yourself to bots, or clicking through endless menus.
 
 ## How it works
 
@@ -10,278 +10,154 @@ You describe your issue once with evidence, and Resolve takes over: it navigates
 You: "My order #12345 arrived damaged. I want a full refund."
      [attaches photo of damaged package]
 
-Resolve: Opens the company's support chat widget
-         -> Describes the issue
+Resolve: Opens the company's app
+         -> Navigates to order history
+         -> Finds the support/help section
+         -> Describes the issue to support chat
          -> Uploads evidence photo
          -> Navigates the support flow
          -> Negotiates resolution
          -> Gets refund confirmation
-         -> Notifies you: "Done. Refund of $49.99 approved, 3-5 business days."
+         -> Notifies you: "Done. Refund of ₹499 approved."
 ```
 
 ## Architecture
 
+Fully standalone Android app — no backend server, no cloud dependency. The app runs an on-device LLM client (bring your own API key or use ChatGPT OAuth) that drives an AccessibilityService to automate support chats across any app.
+
 ```
-┌──────────────────────┐     WebSocket      ┌──────────────────────┐
-│   Chrome Extension   │ <================> │   Backend Server     │
-│                      │                    │                      │
-│  popup/              │                    │  Agent Loop          │
-│    Issue form UI     │  widget state -->  │    Observe state     │
-│    Live activity     │  <-- actions       │    Ask Claude        │
-│    Approve/pause     │                    │    Validate policy   │
-│                      │                    │    Return action     │
-│  content/            │                    │                      │
-│    Widget detector   │                    │  Claude API          │
-│    DOM extractor     │                    │    Tool-use agent    │
-│    DOM executor      │                    │    System prompt     │
-│                      │                    │    6 tools defined   │
-│  background/         │                    │                      │
-│    Message routing    │                    │  Safety              │
-│    WS management     │                    │    PII filter        │
-│                      │                    │    Action policy     │
-│  8 widget profiles   │                    │    Rate limiting     │
-└──────────────────────┘                    └──────────────────────┘
+┌─────────────────────────────────────────────────┐
+│              Android Companion App              │
+│                                                 │
+│  MainActivity                                   │
+│    Issue form (app, order, description, photos)  │
+│    → Launches CompanionAgentService              │
+│                                                 │
+│  CompanionAgentService (Foreground Service)      │
+│    → AgentLoop (observe-think-act cycle)         │
+│       → AccessibilityEngine (screen capture)     │
+│       → LLMClient (Azure/OpenAI/Anthropic)       │
+│       → SafetyPolicy (PII filter, action gates)  │
+│                                                 │
+│  SupportAccessibilityService                     │
+│    → Captures UI tree from any app               │
+│    → Executes clicks, types, scrolls             │
+│    → Floating stop button overlay                │
+│                                                 │
+│  AuthManager                                     │
+│    → EncryptedSharedPreferences + backup          │
+│    → ChatGPT OAuth or bring-your-own-key          │
+└─────────────────────────────────────────────────┘
 ```
-
-### Three execution channels
-
-| Channel | Use case |
-|---------|----------|
-| **Browser Extension** | Chrome extension detects live chat widgets and automates them via DOM manipulation. Claude decides each action. |
-| **Mock Browser** | Playwright drives a mock support portal for testing and demos. |
-| **Mobile Companion** | Android companion app executes support flows on mobile apps via accessibility APIs. |
-
-## Supported chat widgets
-
-The extension detects and interacts with these providers out of the box:
-
-- **Intercom** - contenteditable input, iframe-based
-- **Zendesk** - Web Widget / Messaging
-- **Freshchat** - Freshworks chat widget
-- **Drift** - Drift messenger
-- **Tawk.to** - Tawk chat widget
-- **Crisp** - Crisp chatbox
-- **HubSpot** - HubSpot Messages
-- **LiveChat** - LiveChat widget
-- **Generic** - Heuristic fallback for unknown widgets
-
-Widget profiles are defined in `extension/lib/widget-detector.js`. Contributing new profiles is one of the easiest ways to contribute.
-
-## Quick start
-
-### 1. Backend server
-
-```bash
-git clone <repo-url>
-cd cs-support
-npm install
-npx playwright install chromium   # for mock browser channel
-
-# Set your Anthropic API key
-cp .env.example .env
-# Edit .env and set ANTHROPIC_API_KEY
-
-npm run dev
-```
-
-Server runs at `http://127.0.0.1:8787` with WebSocket at `ws://127.0.0.1:8787/ws/agent`.
-
-### 2. Chrome Extension
-
-1. Open Chrome and navigate to `chrome://extensions`
-2. Enable **Developer mode** (top right toggle)
-3. Click **Load unpacked**
-4. Select the `extension/` folder from this repository
-5. Pin the Resolve extension to your toolbar
-
-### 3. Use it
-
-1. Navigate to any website with a customer support chat widget
-2. Click the Resolve extension icon
-3. Describe your issue and attach evidence
-4. Select your desired outcome
-5. Click **Resolve It**
-6. Watch the agent work in the activity feed
-7. Approve or provide input when the agent asks
-
-### 4. Android companion (single-submit UX)
-
-1. Open `android-companion/` in Android Studio and run the app on an emulator/device.
-2. Keep backend running locally (`npm run dev`).
-3. In the app, fill:
-   - API key
-   - App name
-   - Issue title
-   - Short description
-   - Optional media attachments
-4. Tap **Submit Issue**.
-
-The app automatically bootstraps device session + permissions, submits the case, and starts the mobile agent loop.
 
 ## Agent tools
 
-The Claude-powered agent has 6 tools:
+The LLM-powered agent has these tools:
 
 | Tool | Description |
 |------|-------------|
-| `type_message` | Type and send a message in the chat |
-| `click_button` | Click a button or quick-reply option |
-| `upload_file` | Upload evidence (screenshot, receipt) |
-| `wait_for_response` | Wait for the support agent to respond |
-| `request_human_review` | Pause and ask the customer for input |
+| `type_message` | Type text into the focused input field |
+| `click_element` | Click a numbered UI element by ID |
+| `scroll_down` / `scroll_up` | Scroll the current view |
+| `press_back` | Press the Android back button |
+| `wait` | Wait for content to load |
+| `request_human_review` | Pause and ask the user for input |
 | `mark_resolved` | Mark the issue as resolved |
+| `update_plan` | Structured reasoning (no-op, forces the LLM to plan) |
+
+## Quick start
+
+### 1. Install the APK
+
+Download the latest APK from the **"Resolve App"** folder in Google Drive, or build from source:
+
+```bash
+cd android-companion
+./gradlew assembleDebug
+# APK at: app/build/outputs/apk/debug/app-debug.apk
+```
+
+### 2. Configure
+
+1. Open the app and choose your auth method:
+   - **ChatGPT OAuth** — Sign in with your OpenAI account
+   - **Bring your own key** — Enter API key for Azure OpenAI, OpenAI, Anthropic, or any compatible endpoint
+2. Enable the accessibility service (the app guides you through this)
+3. On Android 13+ with sideloaded APKs: allow restricted settings first (the app guides you)
+
+### 3. Use it
+
+1. Enter the app name (e.g., "Dominos", "Swiggy", "Amazon")
+2. Describe your issue and desired outcome
+3. Optionally attach photos as evidence
+4. Tap **Resolve It**
+5. Switch to the target app — the agent takes over
+6. Watch progress in the notification or tap the floating stop button to cancel
+
+## Supported apps
+
+The agent works with any Android app, but has optimized navigation profiles for:
+
+- **Dominos India** — pizza order support
+- **Swiggy** — food delivery support
+- **Zomato** — food delivery support
+- **Amazon** — order support
+- **Flipkart** — order support
+- **Uber** — ride support
+- **Ola** — ride support
+
+For unlisted apps, the agent uses generic navigation heuristics.
 
 ## Safety model
 
-Multiple layers of protection:
-
-- **PII filtering**: SSN, credit card, password patterns are redacted before reaching Claude.
-- **Action-level policy gates**: Financial actions and commitments require explicit user approval.
-- **Sensitive data blocking**: Agent cannot send messages containing sensitive terms.
-- **Rate limiting**: Minimum 2s between actions, maximum 30 iterations per case.
-- **Human-in-the-loop**: Agent pauses for unknown information or uncertain decisions.
-- **Full audit trail**: Every action logged to case timeline and archived to disk.
-
-## API endpoints
-
-### Cases
-- `POST /api/cases` - Create a new support case
-- `POST /api/cases/:id/start` - Start via mock browser
-- `POST /api/cases/:id/start-mobile` - Start via mobile companion
-- `POST /api/cases/:id/start-extension` - Start via browser extension
-- `POST /api/cases/:id/approve` - Resume a paused case
-- `GET /api/cases` - List all cases
-- `GET /api/cases/:id` - Get case details
-
-### Devices (mobile companion)
-- `POST /api/devices/register`
-- `GET /api/devices`
-- `GET /api/devices/:id`
-- `POST /api/devices/:id/permissions`
-- `GET /api/devices/:id/commands`
-
-### Client/mobile (API key flow)
-- `POST /api/client/mobile/submit` - One call to bootstrap session, create case, and dispatch mobile automation
-
-### Device agent protocol
-- `POST /api/device-agent/poll`
-- `POST /api/device-agent/commands/:id/events`
-- `POST /api/device-agent/commands/:id/complete`
-- `POST /api/device-agent/commands/:id/fail`
-
-### WebSocket
-- `ws://127.0.0.1:8787/ws/agent` - Real-time extension communication
-
-## Demo: browser extension flow
-
-```bash
-# 1. Start the server
-npm run dev
-
-# 2. Load the extension in Chrome (see Quick Start above)
-
-# 3. Navigate to any site with a chat widget (or use the mock portal)
-open http://127.0.0.1:8787/mock-support
-
-# 4. Click the Resolve extension icon and submit your issue
-```
-
-## Demo: mock browser flow
-
-```bash
-curl -sS -X POST http://127.0.0.1:8787/api/cases \
-  -H 'content-type: application/json' \
-  -d '{
-    "customerName": "Asha Patel",
-    "issue": "My package arrived damaged and I need a refund",
-    "orderId": "ORD-2026-01",
-    "attachmentPaths": ["fixtures/damaged-package.txt"]
-  }'
-
-# Then start and check:
-curl -sS -X POST http://127.0.0.1:8787/api/cases/<CASE_ID>/start
-curl -sS http://127.0.0.1:8787/api/cases/<CASE_ID>
-```
-
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | 8787 | Server port |
-| `BASE_URL` | `http://127.0.0.1:8787` | Server base URL |
-| `ANTHROPIC_API_KEY` | (required) | Claude API key for the agent |
-| `CLAUDE_MODEL` | `claude-sonnet-4-20250514` | Which Claude model to use |
-| `MOBILE_COMMAND_TIMEOUT_MS` | 120000 | Mobile command timeout |
-| `CONVERSATION_ARCHIVE_DIR` | `./conversations` | Where to save case transcripts |
+- **PII filtering**: SSN, credit card, password patterns detected and blocked before reaching the LLM.
+- **Financial action gates**: Actions involving refunds or payments require explicit user approval.
+- **30-iteration hard limit**: Agent stops after 30 actions to prevent runaway loops.
+- **Element banning**: UI elements that led to wrong screens are permanently blocked.
+- **App-scope restriction**: Agent auto-corrects when it navigates to non-target apps.
+- **Floating stop button**: Always visible — tap to immediately stop the agent.
 
 ## Project structure
 
 ```
 cs-support/
-├── extension/                    # Chrome extension (vanilla JS)
-│   ├── manifest.json             # Manifest V3
-│   ├── popup/                    # Extension popup UI
-│   │   ├── popup.html            # Issue form + activity feed
-│   │   ├── popup.css             # Dark theme UI
-│   │   └── popup.js              # Popup logic
-│   ├── background/
-│   │   └── service-worker.js     # Message routing + WebSocket
-│   ├── content/
-│   │   └── main.js               # Widget detection + action execution
-│   └── lib/
-│       ├── widget-detector.js    # 8 provider profiles + heuristic fallback
-│       ├── dom-extractor.js      # Extract normalized chat state
-│       ├── dom-executor.js       # Type, click, upload with framework compat
-│       └── message-bus.js        # Chrome messaging wrapper
-├── src/                          # Backend (TypeScript + Express)
-│   ├── index.ts                  # Server + WebSocket + routes
-│   ├── domain/
-│   │   ├── types.ts              # Core types
-│   │   ├── case-store.ts         # Case state machine
-│   │   ├── device-store.ts       # Mobile device registry
-│   │   └── device-command-store.ts
-│   ├── services/
-│   │   ├── support-agent.ts      # Orchestration (3 channels)
-│   │   ├── agent-loop.ts         # Observe-think-act cycle
-│   │   ├── claude-client.ts      # Claude API + tool definitions
-│   │   ├── policy.ts             # Case + action policy gates
-│   │   ├── sensitive-filter.ts   # PII redaction
-│   │   ├── intent.ts             # Keyword intent classifier
-│   │   ├── conversation-archive.ts
-│   │   └── mobile-permissions.ts
-│   ├── automation/
-│   │   └── mock-support-runner.ts
-│   └── web/
-│       └── mock-support-page.ts
-├── android-companion/            # Android companion app
-├── tests/                        # Vitest test suite
-├── conversations/                # Archived case transcripts
-└── fixtures/                     # Test fixtures
-```
-
-## Tests
-
-```bash
-npm test
+├── android-companion/           # Android app (Kotlin, View system, Material 3)
+│   ├── app/src/main/java/com/cssupport/companion/
+│   │   ├── AccessibilityEngine.kt    # UI tree capture, element IDs, action execution
+│   │   ├── AgentLoop.kt              # Observe-think-act cycle, recovery, prompts
+│   │   ├── LLMClient.kt              # Multi-provider LLM client with tool calling
+│   │   ├── CompanionAgentService.kt   # Foreground service lifecycle
+│   │   ├── SafetyPolicy.kt           # PII detection, action gates
+│   │   ├── AuthManager.kt            # Encrypted credential storage
+│   │   ├── AppNavigationKnowledge.kt  # App-specific navigation profiles
+│   │   ├── SupportAccessibilityService.kt # AccessibilityService + stop button
+│   │   ├── MainActivity.kt           # Issue form
+│   │   ├── WelcomeActivity.kt        # Auth flow entry
+│   │   ├── OnboardingActivity.kt     # Accessibility setup guide
+│   │   ├── MonitorActivity.kt        # Live agent activity feed
+│   │   └── CompleteActivity.kt       # Resolution summary
+│   ├── app/src/main/res/             # Layouts, strings, themes
+│   ├── AGENT_RESEARCH.md             # Research papers analysis
+│   ├── RESEARCH_CODEX.md             # Codex CLI patterns analysis
+│   └── build.gradle.kts              # Build config
+├── CLAUDE.md                         # Development instructions
+├── README.md                         # This file
+└── LICENSE                           # MIT
 ```
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The easiest ways to contribute:
+1. Fork the repo and create a feature branch
+2. Build: `cd android-companion && ./gradlew assembleDebug`
+3. Test on a real Android device (Samsung recommended)
+4. Keep PRs focused and small
+5. Do not commit API keys or credentials
 
-1. **Add widget profiles** - Test with a chat widget, document its selectors, add to `widget-detector.js`
-2. **Improve DOM extraction** - Better message parsing for specific providers
-3. **Add tests** - More coverage for the agent loop and policy gates
-4. **Mobile companion** - Implement real accessibility-based automation for Android apps
+### Good first contributions
 
-## Current limitations
-
-- Runtime state is in-memory (no DB), but case transcripts are archived to disk.
-- Extension requires the backend to be running locally (no hosted mode yet).
-- Widget profiles may need updating as providers change their DOM.
-- No auth/tenant model yet (device token is prototype-grade).
-- iOS cross-app autonomy constraints still apply for mobile channel.
-- File upload works for providers that use standard `<input type="file">` elements.
+- **Add app navigation profiles** — Test with a new app, document the support flow path and pitfalls, add to `AppNavigationKnowledge.kt`
+- **Improve chat phase** — Better handling of chatbot menus, file uploads, multi-turn conversations
+- **Add tests** — Unit tests for SafetyPolicy, AgentLoop logic, LLMClient parsing
 
 ## License
 

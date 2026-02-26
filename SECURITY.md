@@ -4,16 +4,15 @@
 
 Please open a private security report with:
 - impact summary,
-- affected endpoints/files,
+- affected files,
 - reproduction steps.
 
 If private reporting is not available, avoid posting exploit details publicly and open an issue requesting a secure contact channel.
 
-## Scope notes
+## Security model
 
-This repo is currently a prototype:
-- device tokens are basic and not production-grade,
-- data is in-memory,
-- no multi-tenant isolation yet.
-
-Do not deploy this version to production without hardening.
+- API keys are stored using Android's EncryptedSharedPreferences (AES-256-GCM) with a plain SharedPreferences backup for Samsung Keystore failures
+- PII patterns (SSN, credit card, passwords) are detected and blocked by SafetyPolicy before reaching the LLM
+- Financial actions require explicit user approval
+- The app sends zero data to any backend server — all LLM calls go directly from the device to the configured provider
+- No analytics, telemetry, or crash reporting is included

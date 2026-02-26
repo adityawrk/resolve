@@ -3,22 +3,21 @@
 ## Setup
 
 ```bash
-npm install
-npx playwright install chromium
-npm test
-npm run build
+cd android-companion
+./gradlew assembleDebug
 ```
+
+Requires: Android SDK, Java 17, Kotlin. minSdk 28, targetSdk 35.
 
 ## Development
 
-- Run server: `npm run dev`
-- Run mobile simulator: `npm run simulate:device`
-- Android companion app: open `android-companion/` in Android Studio
-- Keep APIs backward-compatible where practical.
-- Add tests for new behavior.
+- Build: `./gradlew assembleDebug` (from `android-companion/`)
+- Test on a real Android device (Samsung recommended — they have unique Keystore behavior)
+- No emulator required, but `adb install` works for quick iteration
 
 ## Pull requests
 
-- Keep PRs focused and small.
-- Include a short test plan in PR description.
-- Do not commit secrets or private credentials.
+- Keep PRs focused and small
+- Include a short test plan in PR description
+- Do not commit API keys or credentials
+- Test on a physical device before submitting

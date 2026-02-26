@@ -1,15 +1,10 @@
 # Resolve
 
-AI agent that automates customer support chats on behalf of customers. Three surfaces: TypeScript/Express backend, Chrome Extension, Android companion app.
+AI agent that automates customer support chats on behalf of customers. Android app using AccessibilityService for cross-app automation with on-device LLM.
 
 ## Commands
 
 ```bash
-# Backend
-npm run dev          # Start dev server (tsx watch, port 8787)
-npm test             # Run all tests (vitest)
-npm run build        # Compile TypeScript to dist/
-
 # Android (from android-companion/)
 ./gradlew assembleDebug    # Build debug APK
 ./gradlew test             # Run unit tests
@@ -32,11 +27,7 @@ The user downloads APKs from the **"Resolve App"** folder in their Google Drive.
 
 ## Architecture
 
-Three execution surfaces share the same observe-think-act loop:
-
-1. **Backend** (`src/`) — Express server, Azure OpenAI GPT-5 Nano, WebSocket for extension, REST polling for mobile. All stores are in-memory.
-2. **Chrome Extension** (`extension/`) — Manifest V3, detects 8 chat widget providers via DOM, routes state to backend over WebSocket.
-3. **Android Companion** (`android-companion/`) — On-device LLM client, AccessibilityService for cross-app automation, foreground service. Runs fully standalone without backend.
+Fully standalone Android app — no backend server, no browser extension. The app runs an on-device LLM client that drives an AccessibilityService to automate support chats across any app.
 
 Case flow: `queued → running → [paused_for_approval → running] → completed | failed`
 
@@ -116,7 +107,7 @@ Human-curated navigation profiles injected into the system prompt for known apps
 - Each profile: `supportPath` (ordered steps), `pitfalls` (wrong turns to avoid), `profileLocation`, `orderHistoryLocation`
 - Unknown apps get generic navigation hints
 
-## Key File Responsibilities (Android)
+## Key File Responsibilities
 
 | File | Role | When to modify |
 |------|------|----------------|
@@ -149,9 +140,6 @@ Update these files in order:
 
 ## Key Conventions
 
-- Backend uses ES modules (`"type": "module"`) — all imports need `.js` extension
-- Zod validates all API route inputs; never trust raw `req.body`
-- Extension JS uses IIFEs for module isolation (no bundler): `ResolveDetector`, `ResolveExtractor`, `ResolveExecutor`, `ResolveBus`
 - Android minSdk 28, targetSdk 35, Kotlin, Java 17, View system (no Compose)
 - Android credentials stored via `AuthManager` using EncryptedSharedPreferences — never write to SharedPreferences directly for secrets
 - `AgentLogStore` drives the MonitorActivity feed via `StateFlow` — always call `AgentLogStore.log()` for user-visible events
@@ -197,8 +185,6 @@ These are hard-won lessons from real-device testing. Do not ignore them.
 
 The policy layers are load-bearing. Do not weaken or skip them:
 
-- **PII filter** (`sensitive-filter.ts`) — strips SSN, CC, CVV before LLM sees data
-- **Action policy** (`policy.ts`) — blocks sensitive data in outbound messages, requires approval for financial actions
 - **SafetyPolicy.kt** — Android-side SSN/CC/password detection, financial keyword gates, 30-iteration hard limit
 - **Human-in-the-loop** — cases pause for approval on financial commitments; this is intentional friction
 - **Element banning** — elements that led to wrong screens are permanently blocked for the session
@@ -220,13 +206,7 @@ Current speed optimizations (do not regress):
 
 ## Testing
 
-Backend tests use vitest with ES modules. Test files live in `tests/`. Pattern: arrange-act-assert with helper factories. Run a single test: `npx vitest run tests/policy.spec.ts`.
-
-Android: No emulator available — user tests on physical Samsung phone. Crashes must be caught via try-catch with graceful fallbacks. Alpha/beta Android libraries are risky on Samsung (Keystore, Biometric, etc.).
-
-## Environment
-
-Copy `.env.example` to `.env`. Required: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`. The extension connects to `http://127.0.0.1:8787` by default (hardcoded in `service-worker.js`).
+No emulator available — user tests on physical Samsung phone. Crashes must be caught via try-catch with graceful fallbacks. Alpha/beta Android libraries are risky on Samsung (Keystore, Biometric, etc.).
 
 ## Research References
 
