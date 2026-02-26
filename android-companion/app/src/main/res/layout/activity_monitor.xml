@@ -115,7 +115,34 @@
       android:paddingTop="@dimen/space_base"
       android:paddingBottom="@dimen/space_base"
       android:clipToPadding="false"
-      android:scrollbars="none" />
+      android:scrollbars="none"
+      android:visibility="gone" />
+
+    <!-- ===== EMPTY / LOADING STATE ===== -->
+    <LinearLayout
+      android:id="@+id/emptyFeedState"
+      android:layout_width="match_parent"
+      android:layout_height="0dp"
+      android:layout_weight="1"
+      android:orientation="vertical"
+      android:gravity="center"
+      android:visibility="visible">
+
+      <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:indeterminate="true"
+        app:indicatorColor="?attr/colorPrimary"
+        app:trackThickness="4dp" />
+
+      <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_base"
+        android:text="@string/monitor_empty_loading"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
 
     <!-- ===== BOTTOM CONTROLS ===== -->
     <LinearLayout
@@ -167,6 +194,8 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:visibility="gone"
+    android:importantForAccessibility="yes"
+    android:accessibilityLiveRegion="assertive"
     tools:visibility="visible">
 
     <!-- Scrim -->
@@ -192,8 +221,7 @@
         android:layout_height="wrap_content"
         android:text="@string/approval_title"
         android:textAppearance="?attr/textAppearanceTitleMedium"
-        android:textColor="?attr/colorOnSurface"
-        android:fontFamily="sans-serif-medium" />
+        android:textColor="?attr/colorOnSurface" />
 
       <!-- Action description -->
       <TextView
@@ -218,7 +246,7 @@
           android:id="@+id/btnDeny"
           style="@style/Resolve.Button.Text"
           android:layout_width="wrap_content"
-          android:layout_height="44dp"
+          android:layout_height="48dp"
           android:text="@string/approval_deny"
           android:textColor="?attr/colorError" />
 
@@ -226,10 +254,10 @@
           android:id="@+id/btnAllow"
           style="@style/Resolve.Button.Primary"
           android:layout_width="wrap_content"
-          android:layout_height="44dp"
+          android:layout_height="48dp"
           android:layout_marginStart="@dimen/element_gap"
           android:text="@string/approval_allow"
-          android:minWidth="100dp" />
+          android:minWidth="120dp" />
       </LinearLayout>
     </LinearLayout>
   </FrameLayout>

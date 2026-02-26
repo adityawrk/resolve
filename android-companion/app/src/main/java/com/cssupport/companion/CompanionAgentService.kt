@@ -7,34 +7,32 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Foreground service that orchestrates the real agent automation loop.
+ * Foreground service that orchestrates the on-device agent automation loop.
  *
- * When a command is received from the backend, it:
+ * Runs fully standalone -- no backend communication. When started it:
  * 1. Launches the target app
  * 2. Waits for the [AccessibilityEngine] to be available
  * 3. Creates an [AgentLoop] with the LLM client and case context
- * 4. Runs the observe-think-act loop, posting real progress events to the backend
- * 5. Reports completion or failure
+ * 4. Runs the observe-think-act loop with live progress via [AgentLogStore]
+ * 5. Reports completion or failure locally
  *
  * Supports pause/resume/stop from the user via intent actions.
  */
 class CompanionAgentService : Service() {
 
-    private val backendClient = BackendClient()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val tag = "CSCompanionService"
 
@@ -48,80 +46,79 @@ class CompanionAgentService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                Log.i(tag, "Received ACTION_STOP")
-                AgentLogStore.log("Service stopping")
-                currentAgentLoop?.pause()
-                currentAgentJob?.cancel()
-                stopSelf()
-                return START_NOT_STICKY
-            }
+        try {
+            when (intent?.action) {
+                ACTION_STOP -> {
+                    Log.i(tag, "Received ACTION_STOP")
+                    AgentLogStore.log("Service stopping")
+                    currentAgentLoop?.pause()
+                    currentAgentJob?.cancel()
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
 
-            ACTION_PAUSE -> {
-                Log.i(tag, "Received ACTION_PAUSE")
-                currentAgentLoop?.pause()
-                updateNotification("Agent paused")
-                return START_STICKY
-            }
+                ACTION_PAUSE -> {
+                    Log.i(tag, "Received ACTION_PAUSE")
+                    currentAgentLoop?.pause()
+                    updateNotification("Agent paused")
+                    return START_STICKY
+                }
 
-            ACTION_RESUME -> {
-                Log.i(tag, "Received ACTION_RESUME")
-                currentAgentLoop?.resume()
-                updateNotification("Agent running")
-                return START_STICKY
-            }
+                ACTION_RESUME -> {
+                    Log.i(tag, "Received ACTION_RESUME")
+                    currentAgentLoop?.resume()
+                    updateNotification("Agent running")
+                    return START_STICKY
+                }
 
-            ACTION_START -> {
-                Log.i(tag, "Received ACTION_START")
-                if (!running) {
-                    running = true
-                    val baseUrl = intent.getStringExtra(EXTRA_BASE_URL)
-                    val deviceId = intent.getStringExtra(EXTRA_DEVICE_ID)
-                    val deviceToken = intent.getStringExtra(EXTRA_DEVICE_TOKEN)
+                ACTION_START -> {
+                    Log.i(tag, "Received ACTION_START")
+                    if (!running) {
+                        running = true
+                        val caseId = intent.getStringExtra(EXTRA_CASE_ID) ?: "local"
+                        val issue = intent.getStringExtra(EXTRA_ISSUE) ?: ""
+                        val desiredOutcome = intent.getStringExtra(EXTRA_DESIRED_OUTCOME) ?: "Resolve the issue"
+                        val orderId = intent.getStringExtra(EXTRA_ORDER_ID)
+                        val targetPlatform = intent.getStringExtra(EXTRA_TARGET_PLATFORM) ?: ""
+                        val hasAttachments = intent.getBooleanExtra(EXTRA_HAS_ATTACHMENTS, false)
 
-                    if (baseUrl.isNullOrBlank() || deviceId.isNullOrBlank() || deviceToken.isNullOrBlank()) {
-                        Log.e(tag, "Cannot start: missing required config")
-                        AgentLogStore.log("Cannot start: missing required config")
-                        stopSelf()
-                        return START_NOT_STICKY
-                    }
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                startForeground(
+                                    NOTIFICATION_ID,
+                                    buildNotification("Agent starting..."),
+                                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                                )
+                            } else {
+                                startForeground(NOTIFICATION_ID, buildNotification("Agent starting..."))
+                            }
+                        } catch (e: Exception) {
+                            Log.e(tag, "startForeground failed", e)
+                            AgentLogStore.log("Failed to start foreground service: ${e.message}", LogCategory.ERROR, "Service start failed")
+                            running = false
+                            stopSelf()
+                            return START_NOT_STICKY
+                        }
 
-                    startForeground(NOTIFICATION_ID, buildNotification("Agent running"))
-                    Log.i(tag, "Foreground service started for device=$deviceId")
-                    scope.launch {
-                        runLoop(
-                            baseUrl = baseUrl,
-                            credentials = DeviceCredentials(deviceId = deviceId, deviceToken = deviceToken),
-                        )
+                        scope.launch {
+                            runLocalLoop(
+                                caseId = caseId,
+                                issue = issue,
+                                desiredOutcome = desiredOutcome,
+                                orderId = orderId,
+                                targetPlatform = targetPlatform,
+                                hasAttachments = hasAttachments,
+                            )
+                        }
                     }
                 }
             }
-
-            ACTION_START_LOCAL -> {
-                Log.i(tag, "Received ACTION_START_LOCAL")
-                if (!running) {
-                    running = true
-                    val caseId = intent.getStringExtra(EXTRA_CASE_ID) ?: "local"
-                    val issue = intent.getStringExtra(EXTRA_ISSUE) ?: ""
-                    val desiredOutcome = intent.getStringExtra(EXTRA_DESIRED_OUTCOME) ?: "Resolve the issue"
-                    val orderId = intent.getStringExtra(EXTRA_ORDER_ID)
-                    val targetPlatform = intent.getStringExtra(EXTRA_TARGET_PLATFORM) ?: ""
-                    val hasAttachments = intent.getBooleanExtra(EXTRA_HAS_ATTACHMENTS, false)
-
-                    startForeground(NOTIFICATION_ID, buildNotification("Agent starting..."))
-                    scope.launch {
-                        runLocalLoop(
-                            caseId = caseId,
-                            issue = issue,
-                            desiredOutcome = desiredOutcome,
-                            orderId = orderId,
-                            targetPlatform = targetPlatform,
-                            hasAttachments = hasAttachments,
-                        )
-                    }
-                }
-            }
+        } catch (e: Exception) {
+            Log.e(tag, "onStartCommand crashed", e)
+            AgentLogStore.log("Service error: ${e.message}", LogCategory.ERROR, "Service error: ${e.message}")
+            running = false
+            try { stopSelf() } catch (_: Exception) {}
+            return START_NOT_STICKY
         }
 
         return START_STICKY
@@ -147,21 +144,23 @@ class CompanionAgentService : Service() {
         hasAttachments: Boolean,
     ) {
         Log.i(tag, "Local agent loop starting for case=$caseId, target=$targetPlatform")
-        AgentLogStore.log("Starting agent for $targetPlatform")
+        AgentLogStore.clear()
+        AgentLogStore.log("Starting agent for $targetPlatform", LogCategory.STATUS_UPDATE, "Starting...")
 
         // Step 1: Launch the target app.
         val launched = tryLaunchApp(targetPlatform)
-        if (!launched) {
-            AgentLogStore.log("Could not launch $targetPlatform -- proceeding with current foreground app")
+        if (launched) {
+            AgentLogStore.log("Launched $targetPlatform", LogCategory.STATUS_UPDATE, "Opening app...")
         } else {
-            AgentLogStore.log("Launched $targetPlatform")
+            // Don't alarm the user — the agent loop will actively try to launch it.
+            Log.w(tag, "Initial launch of $targetPlatform failed, agent loop will retry")
         }
 
         // Step 2: Wait for the accessibility service.
         delay(2000)
         val engine = waitForAccessibilityEngine(timeoutMs = 10_000)
         if (engine == null) {
-            AgentLogStore.log("FAILED: Accessibility service not available")
+            AgentLogStore.log("FAILED: Accessibility service not available", LogCategory.ERROR, "Accessibility service not available")
             running = false
             stopSelf()
             return
@@ -169,12 +168,27 @@ class CompanionAgentService : Service() {
 
         // Step 3: Load LLM config.
         val authManager = AuthManager(this@CompanionAgentService)
-        val llmConfig = authManager.loadLLMConfig()
+        var llmConfig = authManager.loadLLMConfig()
         if (llmConfig == null) {
-            AgentLogStore.log("FAILED: No LLM API key configured")
+            AgentLogStore.log("FAILED: No LLM API key configured", LogCategory.ERROR, "No API key configured")
             running = false
             stopSelf()
             return
+        }
+
+        // Step 3b: Refresh OAuth token if needed.
+        if (authManager.needsOAuthRefresh()) {
+            val refreshed = authManager.refreshOAuthTokenIfNeeded()
+            if (refreshed) {
+                // Reload config with fresh token.
+                llmConfig = authManager.loadLLMConfig()
+                if (llmConfig == null) {
+                    AgentLogStore.log("FAILED: Token refresh failed", LogCategory.ERROR, "Authentication expired")
+                    running = false
+                    stopSelf()
+                    return
+                }
+            }
         }
 
         val llmClient = LLMClient(llmConfig)
@@ -190,11 +204,17 @@ class CompanionAgentService : Service() {
             targetPlatform = targetPlatform,
         )
 
-        // Step 5: Run the agent loop.
+        // Step 5: Run the agent loop with the user's auto-approve preference.
+        val autoApprove = getSharedPreferences("resolve_prefs", MODE_PRIVATE)
+            .getBoolean("auto_approve", false)
+        val safetyPolicy = SafetyPolicy(autoApproveSafeActions = autoApprove)
+
         val agentLoop = AgentLoop(
             engine = engine,
             llmClient = llmClient,
             caseContext = caseContext,
+            safetyPolicy = safetyPolicy,
+            launchTargetApp = { tryLaunchApp(targetPlatform) },
             onEvent = { event ->
                 // Update notification with current action.
                 val eventMsg = when (event) {
@@ -211,25 +231,25 @@ class CompanionAgentService : Service() {
         currentAgentLoop = agentLoop
 
         updateNotification("Working in $targetPlatform...")
-        AgentLogStore.log("Agent loop running")
+        AgentLogStore.log("Agent loop running", LogCategory.STATUS_UPDATE, "Agent is working...")
 
         currentAgentJob = scope.launch {
             val result = agentLoop.run()
             when (result) {
                 is AgentResult.Resolved -> {
-                    AgentLogStore.log("Case resolved: ${result.summary}")
+                    AgentLogStore.log("Case resolved: ${result.summary}", LogCategory.TERMINAL_RESOLVED, "Issue resolved!")
                     updateNotification("Resolved")
                 }
                 is AgentResult.Failed -> {
-                    AgentLogStore.log("Case failed: ${result.reason}")
+                    AgentLogStore.log("Case failed: ${result.reason}", LogCategory.TERMINAL_FAILED, "Agent stopped: ${result.reason}")
                     updateNotification("Failed")
                 }
                 is AgentResult.NeedsHumanReview -> {
-                    AgentLogStore.log("Needs your input: ${result.reason}")
+                    AgentLogStore.log("Needs your input: ${result.reason}", LogCategory.APPROVAL_NEEDED, "Needs your input")
                     updateNotification("Needs your input")
                 }
                 is AgentResult.Cancelled -> {
-                    AgentLogStore.log("Agent cancelled")
+                    AgentLogStore.log("Agent cancelled", LogCategory.STATUS_UPDATE, "Cancelled")
                 }
             }
         }
@@ -239,262 +259,6 @@ class CompanionAgentService : Service() {
         currentAgentJob = null
         running = false
         updateNotification("Agent idle")
-    }
-
-    // ── Main polling loop ───────────────────────────────────────────────────
-
-    private suspend fun runLoop(
-        baseUrl: String,
-        credentials: DeviceCredentials,
-    ) {
-        Log.i(tag, "Polling loop started for ${credentials.deviceId}")
-        AgentLogStore.log("Polling for commands as ${credentials.deviceId}")
-
-        while (scope.isActive) {
-            runCatching {
-                backendClient.pollCommand(baseUrl = baseUrl, credentials = credentials)
-            }.onSuccess { command ->
-                if (command == null) {
-                    Log.d(tag, "No command; polling again")
-                    delay(1500)
-                    return@onSuccess
-                }
-
-                Log.i(tag, "Received command ${command.id} case=${command.payload.caseId}")
-                AgentLogStore.log("Received command ${command.id} for case ${command.payload.caseId}")
-                updateNotification("Working on case ${command.payload.caseId.take(8)}...")
-                executeCommand(baseUrl, credentials, command)
-            }.onFailure { error ->
-                Log.e(tag, "Poll failure", error)
-                AgentLogStore.log("Poll failure: ${error.message}")
-                delay(3000)
-            }
-        }
-    }
-
-    // ── Command execution with real agent loop ──────────────────────────────
-
-    private suspend fun executeCommand(
-        baseUrl: String,
-        credentials: DeviceCredentials,
-        command: CompanionCommand,
-    ) {
-        runCatching {
-            // Step 1: Report that we are starting.
-            backendClient.postCommandEvent(
-                baseUrl = baseUrl,
-                credentials = credentials,
-                commandId = command.id,
-                message = "Agent starting: launching ${command.payload.targetPlatform}",
-                stage = "start",
-            )
-
-            // Step 2: Launch the target app.
-            val launched = tryLaunchApp(command.payload.targetPlatform)
-            if (!launched) {
-                backendClient.postCommandEvent(
-                    baseUrl = baseUrl,
-                    credentials = credentials,
-                    commandId = command.id,
-                    message = "App '${command.payload.targetPlatform}' not installed; attempting to proceed",
-                )
-            }
-
-            // Step 3: Wait for the accessibility service to pick up the new window.
-            delay(2000)
-
-            // Step 4: Get the accessibility engine.
-            val engine = waitForAccessibilityEngine(timeoutMs = 10_000)
-            if (engine == null) {
-                backendClient.failCommand(
-                    baseUrl = baseUrl,
-                    credentials = credentials,
-                    commandId = command.id,
-                    errorMessage = "Accessibility service is not enabled. " +
-                        "Please enable the Resolve accessibility service in Settings > Accessibility.",
-                )
-                AgentLogStore.log("FAILED: Accessibility service not available")
-                return
-            }
-
-            // Step 5: Get LLM config.
-            val authManager = AuthManager(this@CompanionAgentService)
-            val llmConfig = authManager.loadLLMConfig()
-            if (llmConfig == null) {
-                backendClient.failCommand(
-                    baseUrl = baseUrl,
-                    credentials = credentials,
-                    commandId = command.id,
-                    errorMessage = "No LLM API key configured. " +
-                        "Please configure your API key in the Resolve app settings.",
-                )
-                AgentLogStore.log("FAILED: No LLM credentials configured")
-                return
-            }
-
-            val llmClient = LLMClient(llmConfig)
-
-            // Step 6: Build case context.
-            val caseContext = CaseContext(
-                caseId = command.payload.caseId,
-                customerName = command.payload.customerName,
-                issue = command.payload.issue,
-                desiredOutcome = command.payload.desiredOutcome,
-                orderId = command.payload.orderId,
-                hasAttachments = command.payload.attachmentPaths.isNotEmpty(),
-                targetPlatform = command.payload.targetPlatform,
-            )
-
-            // Step 7: Create and run the agent loop.
-            val agentLoop = AgentLoop(
-                engine = engine,
-                llmClient = llmClient,
-                caseContext = caseContext,
-                onEvent = { event ->
-                    // Forward significant events to the backend as progress updates.
-                    handleAgentEvent(baseUrl, credentials, command.id, event)
-                },
-            )
-            currentAgentLoop = agentLoop
-
-            backendClient.postCommandEvent(
-                baseUrl = baseUrl,
-                credentials = credentials,
-                commandId = command.id,
-                message = "Agent loop starting: observing screen and planning actions",
-                stage = "step",
-            )
-
-            currentAgentJob = scope.launch {
-                val result = agentLoop.run()
-                handleAgentResult(baseUrl, credentials, command.id, result)
-            }
-
-            // Wait for the agent job to complete.
-            currentAgentJob?.join()
-
-        }.onFailure { error ->
-            val reason = error.message ?: "Unknown execution failure"
-            Log.e(tag, "Command ${command.id} failed: $reason", error)
-            AgentLogStore.log("Command ${command.id} failed: $reason")
-            runCatching {
-                backendClient.failCommand(
-                    baseUrl = baseUrl,
-                    credentials = credentials,
-                    commandId = command.id,
-                    errorMessage = reason,
-                )
-            }
-        }
-
-        currentAgentLoop = null
-        currentAgentJob = null
-        updateNotification("Agent idle -- waiting for commands")
-    }
-
-    // ── Agent event forwarding ──────────────────────────────────────────────
-
-    private suspend fun handleAgentEvent(
-        baseUrl: String,
-        credentials: DeviceCredentials,
-        commandId: String,
-        event: AgentEvent,
-    ) {
-        val message = when (event) {
-            is AgentEvent.Started -> "Agent loop started for case ${event.caseId}"
-            is AgentEvent.ScreenCaptured -> "Screen captured: ${event.packageName} (${event.elementCount} elements)"
-            is AgentEvent.ThinkingStarted -> null  // Too noisy for backend.
-            is AgentEvent.DecisionMade -> "Decision: ${event.action}"
-            is AgentEvent.ApprovalNeeded -> "APPROVAL NEEDED: ${event.reason}"
-            is AgentEvent.ActionBlocked -> "ACTION BLOCKED: ${event.reason}"
-            is AgentEvent.ActionExecuted -> {
-                if (event.success) "Executed: ${event.description}"
-                else "Failed to execute: ${event.description}"
-            }
-            is AgentEvent.HumanReviewRequested -> "HUMAN REVIEW: ${event.reason}"
-            is AgentEvent.Resolved -> "RESOLVED: ${event.summary}"
-            is AgentEvent.Error -> "ERROR: ${event.message}"
-            is AgentEvent.Failed -> "FAILED: ${event.reason}"
-            is AgentEvent.Cancelled -> "Agent cancelled"
-        }
-
-        if (message != null) {
-            runCatching {
-                backendClient.postCommandEvent(
-                    baseUrl = baseUrl,
-                    credentials = credentials,
-                    commandId = commandId,
-                    message = message,
-                    stage = "step",
-                )
-            }.onFailure { e ->
-                Log.w(tag, "Failed to post agent event to backend", e)
-            }
-        }
-    }
-
-    // ── Agent result handling ───────────────────────────────────────────────
-
-    private suspend fun handleAgentResult(
-        baseUrl: String,
-        credentials: DeviceCredentials,
-        commandId: String,
-        result: AgentResult,
-    ) {
-        when (result) {
-            is AgentResult.Resolved -> {
-                Log.i(tag, "Command $commandId resolved: ${result.summary}")
-                AgentLogStore.log("Command $commandId resolved after ${result.iterationsCompleted} iterations")
-                runCatching {
-                    backendClient.completeCommand(
-                        baseUrl = baseUrl,
-                        credentials = credentials,
-                        commandId = commandId,
-                        resultSummary = result.summary,
-                    )
-                }
-            }
-
-            is AgentResult.Failed -> {
-                Log.e(tag, "Command $commandId failed: ${result.reason}")
-                AgentLogStore.log("Command $commandId failed: ${result.reason}")
-                runCatching {
-                    backendClient.failCommand(
-                        baseUrl = baseUrl,
-                        credentials = credentials,
-                        commandId = commandId,
-                        errorMessage = result.reason,
-                    )
-                }
-            }
-
-            is AgentResult.NeedsHumanReview -> {
-                Log.i(tag, "Command $commandId needs human review: ${result.reason}")
-                AgentLogStore.log("Command $commandId paused for human review: ${result.reason}")
-                runCatching {
-                    backendClient.postCommandEvent(
-                        baseUrl = baseUrl,
-                        credentials = credentials,
-                        commandId = commandId,
-                        message = "Agent paused: human review required -- ${result.reason}",
-                        stage = "paused",
-                    )
-                }
-            }
-
-            is AgentResult.Cancelled -> {
-                Log.i(tag, "Command $commandId cancelled")
-                AgentLogStore.log("Command $commandId cancelled by user")
-                runCatching {
-                    backendClient.failCommand(
-                        baseUrl = baseUrl,
-                        credentials = credentials,
-                        commandId = commandId,
-                        errorMessage = "Cancelled by user",
-                    )
-                }
-            }
-        }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
@@ -533,55 +297,59 @@ class CompanionAgentService : Service() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.agent_notification_channel),
-            NotificationManager.IMPORTANCE_LOW,
+            NotificationManager.IMPORTANCE_DEFAULT,
         )
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
     }
 
     private fun buildNotification(contentText: String): Notification {
-        val openAppIntent = Intent(this, MonitorActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, openAppIntent, PendingIntent.FLAG_IMMUTABLE,
-        )
+        return try {
+            val openAppIntent = Intent(this, MonitorActivity::class.java)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, openAppIntent, PendingIntent.FLAG_IMMUTABLE,
+            )
 
-        val stopIntent = Intent(this, CompanionAgentService::class.java).apply {
-            action = ACTION_STOP
+            val stopIntent = Intent(this, CompanionAgentService::class.java).apply {
+                action = ACTION_STOP
+            }
+            val stopPendingIntent = PendingIntent.getService(
+                this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE,
+            )
+
+            val pauseIntent = Intent(this, CompanionAgentService::class.java).apply {
+                action = ACTION_PAUSE
+            }
+            val pausePendingIntent = PendingIntent.getService(
+                this, 2, pauseIntent, PendingIntent.FLAG_IMMUTABLE,
+            )
+
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_agent)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(contentText.ifBlank { getString(R.string.notification_tap_progress) })
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .addAction(0, getString(R.string.notification_view_progress), pendingIntent)
+                .addAction(0, getString(R.string.notification_stop), stopPendingIntent)
+                .build()
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to build notification", e)
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("Resolve")
+                .setContentText(contentText)
+                .build()
         }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE,
-        )
-
-        val pauseIntent = Intent(this, CompanionAgentService::class.java).apply {
-            action = ACTION_PAUSE
-        }
-        val pausePendingIntent = PendingIntent.getService(
-            this, 2, pauseIntent, PendingIntent.FLAG_IMMUTABLE,
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_agent)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText(contentText.ifBlank { getString(R.string.agent_notification_text) })
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .addAction(0, "Pause", pausePendingIntent)
-            .addAction(0, "Stop", stopPendingIntent)
-            .build()
     }
 
     companion object {
         private const val ACTION_START = "com.cssupport.companion.action.START"
-        private const val ACTION_START_LOCAL = "com.cssupport.companion.action.START_LOCAL"
         private const val ACTION_STOP = "com.cssupport.companion.action.STOP"
         private const val ACTION_PAUSE = "com.cssupport.companion.action.PAUSE"
         private const val ACTION_RESUME = "com.cssupport.companion.action.RESUME"
 
-        private const val EXTRA_BASE_URL = "extra_base_url"
-        private const val EXTRA_DEVICE_ID = "extra_device_id"
-        private const val EXTRA_DEVICE_TOKEN = "extra_device_token"
-
-        // Extras for local (standalone) mode.
         private const val EXTRA_CASE_ID = "extra_case_id"
         private const val EXTRA_ISSUE = "extra_issue"
         private const val EXTRA_DESIRED_OUTCOME = "extra_desired_outcome"
@@ -593,32 +361,10 @@ class CompanionAgentService : Service() {
         private const val NOTIFICATION_ID = 10011
 
         /**
-         * Start the service in backend-connected mode (polls for commands).
-         */
-        fun start(
-            context: Context,
-            baseUrl: String,
-            credentials: DeviceCredentials,
-        ) {
-            val intent = Intent(context, CompanionAgentService::class.java).apply {
-                action = ACTION_START
-                putExtra(EXTRA_BASE_URL, baseUrl)
-                putExtra(EXTRA_DEVICE_ID, credentials.deviceId)
-                putExtra(EXTRA_DEVICE_TOKEN, credentials.deviceToken)
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
-        }
-
-        /**
-         * Start the service in standalone on-device mode (no backend needed).
+         * Start the service in standalone on-device mode.
          * Runs the agent loop directly with the provided case context.
          */
-        fun startLocal(
+        fun start(
             context: Context,
             caseId: String,
             issue: String,
@@ -628,7 +374,7 @@ class CompanionAgentService : Service() {
             hasAttachments: Boolean,
         ) {
             val intent = Intent(context, CompanionAgentService::class.java).apply {
-                action = ACTION_START_LOCAL
+                action = ACTION_START
                 putExtra(EXTRA_CASE_ID, caseId)
                 putExtra(EXTRA_ISSUE, issue)
                 putExtra(EXTRA_DESIRED_OUTCOME, desiredOutcome)

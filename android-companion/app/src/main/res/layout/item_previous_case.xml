@@ -85,7 +85,7 @@
       android:layout_marginTop="@dimen/space_xs"
       android:textAppearance="?attr/textAppearanceLabelSmall"
       android:textColor="?attr/colorOnSurfaceVariant"
-      android:alpha="0.6"
+      android:alpha="0.8"
       tools:text="Today, 2:34 PM" />
   </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

@@ -41,6 +41,7 @@ class LLMClient(private val config: LLMConfig) {
 
     private fun callOpenAICompatible(systemPrompt: String, userMessage: String): AgentDecision {
         val url = buildOpenAIUrl()
+        Log.d(tag, "Calling: $url (model=${config.model}, provider=${config.provider})")
         val body = JSONObject().apply {
             put("model", config.model)
             put("max_completion_tokens", 1024)
@@ -72,8 +73,14 @@ class LLMClient(private val config: LLMConfig) {
     private fun buildOpenAIUrl(): String {
         return when (config.provider) {
             LLMProvider.AZURE_OPENAI -> {
-                val endpoint = config.endpoint?.removeSuffix("/")
+                var endpoint = config.endpoint?.removeSuffix("/")
                     ?: throw IllegalStateException("Azure endpoint is required")
+                // Azure AI Foundry endpoints include /api/projects/<name> which must be
+                // stripped — the OpenAI deployment path is appended to the base resource URL.
+                val projectIdx = endpoint.indexOf("/api/projects/")
+                if (projectIdx > 0) {
+                    endpoint = endpoint.substring(0, projectIdx)
+                }
                 val apiVersion = config.apiVersion ?: "2024-10-21"
                 "$endpoint/openai/deployments/${config.model}/chat/completions?api-version=$apiVersion"
             }

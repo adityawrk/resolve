@@ -26,6 +26,7 @@ class AgentLoop(
     private val caseContext: CaseContext,
     private val safetyPolicy: SafetyPolicy = SafetyPolicy(),
     private val onEvent: suspend (AgentEvent) -> Unit = {},
+    private val launchTargetApp: (() -> Boolean)? = null,
 ) {
 
     private val tag = "AgentLoop"
@@ -35,6 +36,15 @@ class AgentLoop(
 
     private val previousActions = mutableListOf<String>()
     private var iterationCount = 0
+    private var consecutiveDuplicates = 0
+    private var lastActionSignature = ""
+    private var llmRetryCount = 0
+
+    private companion object {
+        const val OWN_PACKAGE = "com.cssupport.companion"
+        const val MAX_FOREGROUND_WAIT_MS = 60_000L
+        const val MAX_CONSECUTIVE_DUPLICATES = 3
+    }
 
     @Volatile
     private var paused = false
@@ -48,7 +58,7 @@ class AgentLoop(
         previousActions.clear()
 
         emit(AgentEvent.Started(caseId = caseContext.caseId))
-        AgentLogStore.log("Agent loop started for case ${caseContext.caseId}")
+        AgentLogStore.log("Agent loop started for case ${caseContext.caseId}", LogCategory.STATUS_UPDATE, "Starting...")
 
         return try {
             val result = executeLoop()
@@ -57,28 +67,41 @@ class AgentLoop(
         } catch (e: CancellationException) {
             _state.value = AgentLoopState.CANCELLED
             emit(AgentEvent.Cancelled)
-            AgentLogStore.log("Agent loop cancelled")
+            AgentLogStore.log("Agent loop cancelled", LogCategory.STATUS_UPDATE, "Cancelled")
             AgentResult.Cancelled
         } catch (e: Exception) {
             _state.value = AgentLoopState.FAILED
-            val msg = "${e.javaClass.simpleName}: ${e.message ?: "Unknown error"}"
-            emit(AgentEvent.Failed(reason = msg))
-            AgentLogStore.log("Agent loop failed: $msg")
-            Log.e(tag, "Agent loop failed: $msg", e)
-            AgentResult.Failed(reason = msg)
+            val displayMessage = when {
+                e.message?.contains("401") == true ->
+                    "Your API key appears to be invalid. Check Settings."
+                e.message?.contains("429") == true ->
+                    "Too many requests. Try again in a moment."
+                e is java.net.UnknownHostException || e is java.net.ConnectException ->
+                    "No internet connection. Please check your network."
+                e is java.net.SocketTimeoutException ->
+                    "The request timed out. Try again."
+                e.message?.contains("HTTP") == true ->
+                    "Could not reach the AI service. Check your internet connection."
+                else ->
+                    "Something went wrong. Please try again."
+            }
+            emit(AgentEvent.Failed(reason = displayMessage))
+            AgentLogStore.log("Agent loop failed: ${e.message}", LogCategory.TERMINAL_FAILED, displayMessage)
+            Log.e(tag, "Agent loop failed: ${e.message}", e)
+            AgentResult.Failed(reason = displayMessage)
         }
     }
 
     fun pause() {
         paused = true
         _state.value = AgentLoopState.PAUSED
-        AgentLogStore.log("Agent loop paused")
+        AgentLogStore.log("Agent loop paused", LogCategory.STATUS_UPDATE, "Paused")
     }
 
     fun resume() {
         paused = false
         _state.value = AgentLoopState.RUNNING
-        AgentLogStore.log("Agent loop resumed")
+        AgentLogStore.log("Agent loop resumed", LogCategory.STATUS_UPDATE, "Resuming...")
     }
 
     private suspend fun executeLoop(): AgentResult {
@@ -101,12 +124,48 @@ class AgentLoop(
                 elementCount = screenState.elements.size,
             ))
 
+            // Skip if we're looking at our own app -- try to launch target and wait.
+            if (screenState.packageName == OWN_PACKAGE) {
+                Log.d(tag, "Own app is in foreground, trying to launch target app...")
+                iterationCount-- // Don't count this as a real iteration.
+
+                // Actively try to launch the target app.
+                if (launchTargetApp != null) {
+                    launchTargetApp.invoke()
+                }
+                AgentLogStore.log("Opening target app", LogCategory.STATUS_UPDATE, "Opening app...")
+
+                val waitStart = System.currentTimeMillis()
+                var retryLaunchCount = 0
+                while (engine.captureScreenState().packageName == OWN_PACKAGE) {
+                    currentCoroutineContext().ensureActive()
+                    val elapsed = System.currentTimeMillis() - waitStart
+
+                    // Retry launching every 8 seconds (up to 4 retries).
+                    if (launchTargetApp != null && retryLaunchCount < 4 && elapsed > (retryLaunchCount + 1) * 8_000L) {
+                        retryLaunchCount++
+                        Log.d(tag, "Retrying app launch (attempt $retryLaunchCount)")
+                        launchTargetApp.invoke()
+                    }
+
+                    if (elapsed > MAX_FOREGROUND_WAIT_MS) {
+                        AgentLogStore.log("Could not open the app automatically", LogCategory.ERROR, "Please open the app manually and try again")
+                        return AgentResult.Failed(
+                            reason = "Could not open the app. Please open it manually and try again.",
+                        )
+                    }
+                    delay(1000)
+                }
+                AgentLogStore.log("App opened", LogCategory.STATUS_UPDATE, "Navigating...")
+                continue
+            }
+
             // Step 2: Think -- ask LLM for next action.
             val formattedScreen = screenState.formatForLLM()
             val userMessage = buildUserMessage(formattedScreen)
 
             emit(AgentEvent.ThinkingStarted)
-            AgentLogStore.log("[$iterationCount] Thinking...")
+            AgentLogStore.log("[$iterationCount] Thinking...", LogCategory.STATUS_UPDATE, "Thinking...")
 
             val decision: AgentDecision
             try {
@@ -114,12 +173,37 @@ class AgentLoop(
                     systemPrompt = buildSystemPrompt(),
                     userMessage = userMessage,
                 )
+                llmRetryCount = 0
             } catch (e: Exception) {
+                llmRetryCount++
+                val backoffMs = (3000L * (1 shl llmRetryCount.coerceAtMost(4))).coerceAtMost(30_000L)
+                val waitSec = backoffMs / 1000
                 Log.e(tag, "LLM call failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 emit(AgentEvent.Error(message = "LLM error: ${e.javaClass.simpleName}: ${e.message}"))
-                AgentLogStore.log("[$iterationCount] LLM error: ${e.javaClass.simpleName}: ${e.message}")
-                // Retry after delay.
-                delay(3000)
+
+                // Show the actual error reason to the user, not just "Retrying".
+                val shortError = when {
+                    e.message?.contains("401") == true -> "API key invalid or expired"
+                    e.message?.contains("403") == true -> "Access denied — check API key"
+                    e.message?.contains("404") == true -> "Model not found — check Settings"
+                    e.message?.contains("429") == true -> "Rate limited, retrying in ${waitSec}s..."
+                    e is java.net.UnknownHostException -> "No internet connection"
+                    e is java.net.ConnectException -> "Cannot reach AI service"
+                    e is java.net.SocketTimeoutException -> "Request timed out, retrying..."
+                    else -> "AI error: ${e.message?.take(80) ?: "unknown"}"
+                }
+                AgentLogStore.log(
+                    "[$iterationCount] LLM error: ${e.javaClass.simpleName}: ${e.message}",
+                    LogCategory.ERROR,
+                    shortError,
+                )
+
+                // Give up after too many consecutive failures.
+                if (llmRetryCount >= 5) {
+                    return AgentResult.Failed(reason = shortError)
+                }
+
+                delay(backoffMs)
                 continue
             }
 
@@ -135,7 +219,7 @@ class AgentLoop(
                 is PolicyResult.Allowed -> { /* proceed */ }
                 is PolicyResult.NeedsApproval -> {
                     emit(AgentEvent.ApprovalNeeded(reason = policyResult.reason))
-                    AgentLogStore.log("[$iterationCount] NEEDS APPROVAL: ${policyResult.reason}")
+                    AgentLogStore.log("[$iterationCount] NEEDS APPROVAL: ${policyResult.reason}", LogCategory.APPROVAL_NEEDED, "Needs your approval")
                     // For now, pause and request human review.
                     return AgentResult.NeedsHumanReview(
                         reason = policyResult.reason,
@@ -144,7 +228,7 @@ class AgentLoop(
                 }
                 is PolicyResult.Blocked -> {
                     emit(AgentEvent.ActionBlocked(reason = policyResult.reason))
-                    AgentLogStore.log("[$iterationCount] BLOCKED: ${policyResult.reason}")
+                    AgentLogStore.log("[$iterationCount] BLOCKED: ${policyResult.reason}", LogCategory.ERROR, "Action blocked: ${policyResult.reason}")
                     // If blocked due to max iterations, fail gracefully.
                     if (iterationCount >= SafetyPolicy.MAX_ITERATIONS) {
                         return AgentResult.Failed(
@@ -157,9 +241,28 @@ class AgentLoop(
                 }
             }
 
+            // Step 3b: Detect repeated identical actions.
+            val actionSignature = describeAction(decision.action)
+            if (actionSignature == lastActionSignature) {
+                consecutiveDuplicates++
+                if (consecutiveDuplicates >= MAX_CONSECUTIVE_DUPLICATES) {
+                    Log.w(tag, "Action repeated $consecutiveDuplicates times: $actionSignature")
+                    AgentLogStore.log("[$iterationCount] Skipping repeated action (tried $consecutiveDuplicates times)", LogCategory.DEBUG)
+                    consecutiveDuplicates = 0
+                    lastActionSignature = ""
+                    // Inject a hint for the LLM on the next iteration.
+                    previousActions.add("REPEATED ACTION SKIPPED: $actionSignature — try a different approach")
+                    delay(SafetyPolicy.MIN_ACTION_DELAY_MS)
+                    continue
+                }
+            } else {
+                consecutiveDuplicates = 0
+                lastActionSignature = actionSignature
+            }
+
             // Step 4: Execute the action.
-            val actionDescription = describeAction(decision.action)
-            AgentLogStore.log("[$iterationCount] $actionDescription")
+            val actionDescription = actionSignature
+            logAction(decision.action, actionDescription)
 
             val actionResult = executeAction(decision.action)
 
@@ -171,11 +274,11 @@ class AgentLoop(
                 is ActionResult.Failed -> {
                     previousActions.add("FAILED: $actionDescription (${actionResult.reason})")
                     emit(AgentEvent.ActionExecuted(description = actionDescription, success = false))
-                    AgentLogStore.log("[$iterationCount] Action failed: ${actionResult.reason}")
+                    AgentLogStore.log("[$iterationCount] Action failed: ${actionResult.reason}", LogCategory.ERROR, "Action failed")
                 }
                 is ActionResult.Resolved -> {
                     emit(AgentEvent.Resolved(summary = actionResult.summary))
-                    AgentLogStore.log("Case resolved: ${actionResult.summary}")
+                    AgentLogStore.log("Case resolved: ${actionResult.summary}", LogCategory.TERMINAL_RESOLVED, "Issue resolved!")
                     return AgentResult.Resolved(
                         summary = actionResult.summary,
                         iterationsCompleted = iterationCount,
@@ -186,7 +289,7 @@ class AgentLoop(
                         reason = actionResult.reason,
                         inputPrompt = actionResult.inputPrompt,
                     ))
-                    AgentLogStore.log("[$iterationCount] Human review requested: ${actionResult.reason}")
+                    AgentLogStore.log("[$iterationCount] Human review requested: ${actionResult.reason}", LogCategory.APPROVAL_NEEDED, "Needs your input")
                     return AgentResult.NeedsHumanReview(
                         reason = actionResult.reason,
                         iterationsCompleted = iterationCount,
@@ -370,6 +473,15 @@ class AgentLoop(
                 appendLine("The customer has provided attachment(s) as evidence. Upload them when relevant.")
                 appendLine()
             }
+            appendLine("## Navigation Strategy")
+            appendLine("You must navigate to the customer support / help / chat section FIRST before composing any messages.")
+            appendLine("Typical navigation path:")
+            appendLine("1. Look for: 'Help', 'Support', 'Customer Service', 'Contact Us', 'Chat', menu icons (≡ or ⋮)")
+            appendLine("2. If on a homepage/main screen, look for account/profile/orders sections that lead to help")
+            appendLine("3. If there's a search bar but no chat, do NOT type your complaint into the search bar")
+            appendLine("4. Find the actual chat/support interface before typing any messages")
+            appendLine("5. Once in the chat interface, compose and send your message")
+            appendLine()
             appendLine("## Rules")
             appendLine("1. Be polite but assertive. You represent the customer's interests.")
             appendLine("2. NEVER reveal that you are an AI or automation tool. Speak as the customer.")
@@ -384,15 +496,20 @@ class AgentLoop(
             appendLine("11. Mark the case resolved only when you have confirmation from the support side.")
             appendLine("12. You can scroll_down or scroll_up to see more content.")
             appendLine("13. Use press_back to dismiss dialogs or navigate back if needed.")
+            appendLine("14. NEVER type into a search bar. Only type into chat/message input fields.")
+            appendLine("15. If you see a dialog or popup (e.g. 'Allow notifications', 'Sign in'), dismiss it or handle it before proceeding.")
             appendLine()
             appendLine("## Important")
             appendLine("You are looking at a REAL Android screen. The elements listed are actual UI components.")
             appendLine("Choose exactly ONE action per turn. Analyze the screen carefully before acting.")
+            appendLine("Think about WHERE you are in the app before deciding what to do.")
         }
     }
 
     private fun buildUserMessage(formattedScreen: String): String {
         return buildString {
+            appendLine("## Target App: ${caseContext.targetPlatform}")
+            appendLine()
             append(formattedScreen)
             appendLine()
             if (previousActions.isNotEmpty()) {
@@ -404,11 +521,45 @@ class AgentLoop(
             }
             appendLine("Iteration: $iterationCount / ${SafetyPolicy.MAX_ITERATIONS}")
             appendLine()
-            appendLine("What is your next action? Choose exactly one tool to use.")
+            appendLine("Analyze the screen carefully. Where are you in the app? What should you do next?")
+            appendLine("Choose exactly one tool to use.")
         }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private fun logAction(action: AgentAction, description: String) {
+        when (action) {
+            is AgentAction.TypeMessage -> {
+                val preview = action.text.take(200)
+                AgentLogStore.log(description, LogCategory.AGENT_MESSAGE, preview)
+            }
+            is AgentAction.ClickButton -> {
+                AgentLogStore.log(description, LogCategory.AGENT_ACTION, "Tapping \"${action.buttonLabel}\"")
+            }
+            is AgentAction.ScrollDown -> {
+                AgentLogStore.log(description, LogCategory.AGENT_ACTION, "Scrolling down")
+            }
+            is AgentAction.ScrollUp -> {
+                AgentLogStore.log(description, LogCategory.AGENT_ACTION, "Scrolling up")
+            }
+            is AgentAction.Wait -> {
+                AgentLogStore.log(description, LogCategory.STATUS_UPDATE, "Waiting for response...")
+            }
+            is AgentAction.UploadFile -> {
+                AgentLogStore.log(description, LogCategory.AGENT_ACTION, "Uploading file")
+            }
+            is AgentAction.PressBack -> {
+                AgentLogStore.log(description, LogCategory.AGENT_ACTION, "Going back")
+            }
+            is AgentAction.RequestHumanReview -> {
+                AgentLogStore.log(description, LogCategory.STATUS_UPDATE, "Needs your input: ${action.reason}")
+            }
+            is AgentAction.MarkResolved -> {
+                AgentLogStore.log(description, LogCategory.STATUS_UPDATE, "Issue resolved!")
+            }
+        }
+    }
 
     private fun describeAction(action: AgentAction): String {
         return when (action) {

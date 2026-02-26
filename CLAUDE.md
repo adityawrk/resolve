@@ -17,7 +17,18 @@ npm run build        # Compile TypeScript to dist/
 # Emulator testing
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell settings put secure enabled_accessibility_services com.cssupport.companion/com.cssupport.companion.SupportAccessibilityService
+
+# Upload APK to Google Drive (after any Android app change)
+/opt/homebrew/bin/rclone copy app/build/outputs/apk/debug/app-debug.apk "gdrive:Resolve App/" --progress
 ```
+
+## Deploy — Android APK
+
+After any change to the Android app, **always build and upload the APK** to Google Drive:
+1. `cd android-companion && ./gradlew assembleDebug`
+2. `/opt/homebrew/bin/rclone copy app/build/outputs/apk/debug/app-debug.apk "gdrive:Resolve App/" --progress`
+
+The user downloads APKs from the **"Resolve App"** folder in their Google Drive.
 
 ## Architecture
 

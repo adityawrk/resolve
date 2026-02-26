@@ -20,17 +20,25 @@ class AuthManager(context: Context) {
     private val prefs: SharedPreferences
 
     init {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+        prefs = try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
 
-        prefs = EncryptedSharedPreferences.create(
-            context,
-            PREFS_FILE_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_FILE_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        } catch (e: Exception) {
+            // Samsung devices and certain OEMs can throw KeyStoreException or
+            // GeneralSecurityException when the Android Keystore is in a bad state.
+            // Fall back to regular SharedPreferences so the app doesn't crash.
+            Log.e(tag, "EncryptedSharedPreferences failed, falling back to plain prefs", e)
+            context.getSharedPreferences(PREFS_FILE_NAME + "_fallback", Context.MODE_PRIVATE)
+        }
     }
 
     // ── LLM API Key auth ────────────────────────────────────────────────────
@@ -134,6 +142,50 @@ class AuthManager(context: Context) {
     fun isOAuthTokenValid(): Boolean {
         val token = loadOAuthToken() ?: return false
         return token.expiresAtMs > System.currentTimeMillis()
+    }
+
+    /**
+     * Check if the OAuth token needs refreshing (expired or about to expire in 5 min).
+     */
+    fun needsOAuthRefresh(): Boolean {
+        val token = loadOAuthToken() ?: return false
+        // Refresh if expiring within 5 minutes
+        return token.expiresAtMs < System.currentTimeMillis() + 300_000L
+    }
+
+    /**
+     * Refresh the OAuth access token and update stored credentials.
+     * Returns true on success, false on failure.
+     */
+    suspend fun refreshOAuthTokenIfNeeded(): Boolean {
+        if (!needsOAuthRefresh()) return true // No refresh needed
+
+        val currentToken = loadOAuthToken() ?: return false
+        val refreshToken = currentToken.refreshToken ?: return false
+
+        return try {
+            val response = ChatGPTOAuth.refreshAccessToken(refreshToken)
+
+            // Save new OAuth token
+            saveOAuthToken(
+                accessToken = response.accessToken,
+                refreshToken = response.refreshToken ?: refreshToken,
+                expiresAtMs = System.currentTimeMillis() + (response.expiresIn * 1000),
+            )
+
+            // Update LLM credentials with new access token
+            saveLLMCredentials(
+                provider = LLMProvider.OPENAI,
+                apiKey = response.accessToken,
+                model = ChatGPTOAuth.DEFAULT_MODEL,
+            )
+
+            Log.d(tag, "OAuth token refreshed successfully")
+            true
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to refresh OAuth token", e)
+            false
+        }
     }
 
     /**

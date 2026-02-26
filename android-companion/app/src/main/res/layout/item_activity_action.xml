@@ -39,6 +39,6 @@
     android:layout_marginStart="@dimen/space_sm"
     android:textAppearance="?attr/textAppearanceLabelSmall"
     android:textColor="?attr/colorOnSurfaceVariant"
-    android:alpha="0.6"
+    android:alpha="0.8"
     tools:text="12:34" />
 </LinearLayout>

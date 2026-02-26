@@ -35,7 +35,7 @@
       android:layout_marginTop="2dp"
       android:textAppearance="?attr/textAppearanceBodyMedium"
       android:textColor="@color/bubble_agent_text"
-      android:lineSpacingMultiplier="1.3"
+      android:lineSpacingMultiplier="1.4"
       tools:text="I understand your concern. Let me look into order #12345 for you. Can you share a photo of the damaged item?" />
   </LinearLayout>
 </FrameLayout>

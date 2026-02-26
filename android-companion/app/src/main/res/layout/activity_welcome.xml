@@ -66,7 +66,6 @@
       android:text="Resolve"
       android:textAppearance="?attr/textAppearanceTitleLarge"
       android:textColor="?attr/colorOnSurface"
-      android:fontFamily="sans-serif-medium"
       android:letterSpacing="-0.01" />
 
     <!-- Tagline -->
@@ -83,19 +82,28 @@
       android:layout_width="wrap_content"
       android:layout_height="wrap_content"
       android:layout_marginTop="@dimen/space_base"
-      android:layout_marginHorizontal="@dimen/space_base"
+      android:layout_marginHorizontal="@dimen/space_xl"
       android:text="@string/welcome_subtitle"
       android:textAppearance="?attr/textAppearanceBodyMedium"
       android:textColor="?attr/colorOnSurfaceVariant"
       android:textAlignment="center"
-      android:lineSpacingMultiplier="1.4"
-      android:alpha="0.7" />
+      android:lineSpacingMultiplier="1.4" />
 
     <!-- Spacer pushes buttons down -->
     <View
       android:layout_width="0dp"
       android:layout_height="0dp"
       android:layout_weight="1" />
+
+    <!-- Loading indicator shown during OAuth token exchange -->
+    <ProgressBar
+      android:id="@+id/oauthLoadingIndicator"
+      style="?android:attr/progressBarStyleHorizontal"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginBottom="@dimen/space_base"
+      android:indeterminate="true"
+      android:visibility="gone" />
 
     <!-- ChatGPT OAuth button: filled, full-width, 56dp height -->
     <com.google.android.material.button.MaterialButton
@@ -131,7 +139,7 @@
         android:text="@string/auth_divider"
         android:textAppearance="?attr/textAppearanceLabelMedium"
         android:textColor="?attr/colorOnSurfaceVariant"
-        android:alpha="0.6" />
+        android:alpha="0.8" />
 
       <View
         android:layout_width="0dp"
@@ -161,7 +169,7 @@
       android:text="By continuing, you agree to the Terms of Service"
       android:textAppearance="?attr/textAppearanceLabelSmall"
       android:textColor="?attr/colorOnSurfaceVariant"
-      android:alpha="0.5"
+      android:alpha="0.7"
       android:textAlignment="center" />
 
   </LinearLayout>

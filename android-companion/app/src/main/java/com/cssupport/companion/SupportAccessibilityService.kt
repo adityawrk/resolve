@@ -67,12 +67,22 @@ class SupportAccessibilityService : AccessibilityService() {
                 val className = event.className?.toString()
 
                 if (!packageName.isNullOrBlank()) {
-                    localEngine.setCurrentPackage(packageName)
-                    localEngine.setCurrentActivity(className)
+                    // Only update the tracked foreground package for real app windows,
+                    // not transient system overlays (keyboard, notification shade, etc.).
+                    val isSystemOverlay = packageName == "com.android.systemui"
+                        || packageName == "com.google.android.inputmethod.latin"
+                        || packageName == "com.android.inputmethod.latin"
+                        || className?.contains("PopupWindow") == true
+                        || className?.contains("Toast") == true
+                    if (!isSystemOverlay) {
+                        localEngine.setCurrentPackage(packageName)
+                        localEngine.setCurrentActivity(className)
+                    }
 
                     // Do not log our own package to avoid noise.
                     if (packageName != "com.cssupport.companion") {
-                        Log.d(tag, "Window state changed: $packageName / $className")
+                        Log.d(tag, "Window state changed: $packageName / $className" +
+                            if (isSystemOverlay) " (overlay, ignored)" else "")
                     }
                 }
 

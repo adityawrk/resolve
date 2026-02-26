@@ -34,7 +34,7 @@
       android:layout_marginTop="2dp"
       android:textAppearance="?attr/textAppearanceBodyMedium"
       android:textColor="@color/bubble_support_text"
-      android:lineSpacingMultiplier="1.3"
+      android:lineSpacingMultiplier="1.4"
       tools:text="Hi, I ordered product #12345 and it arrived damaged. I have photos of the damage. I would like a full refund please." />
   </LinearLayout>
 </FrameLayout>

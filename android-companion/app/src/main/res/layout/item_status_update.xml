@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Centered status message (e.g., "Thinking...", "Waiting for response...") -->
+
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:paddingVertical="@dimen/space_sm">
+
+  <TextView
+    android:id="@+id/statusText"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_gravity="center"
+    android:paddingHorizontal="@dimen/space_base"
+    android:paddingVertical="@dimen/space_xs"
+    android:textAppearance="?attr/textAppearanceLabelSmall"
+    android:textColor="?attr/colorOnSurfaceVariant"
+    android:alpha="0.8"
+    tools:text="Thinking..." />
+</FrameLayout>

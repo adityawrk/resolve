@@ -47,14 +47,28 @@ class CompleteActivity : AppCompatActivity() {
         }
         findViewById<TextView>(R.id.detailTimeTaken).text = elapsed
 
-        // Steps taken (from log entries).
-        val logEntries = AgentLogStore.entries.value
-        val stepCount = logEntries.count { it.contains("] ") }
+        // Steps taken -- prefer the snapshotted count from MonitorActivity to avoid race.
+        val stepCount = if (intent.hasExtra(EXTRA_STEP_COUNT)) {
+            intent.getIntExtra(EXTRA_STEP_COUNT, 0)
+        } else {
+            // Backwards compat: compute from AgentLogStore directly.
+            AgentLogStore.entries.value.count {
+                it.category == LogCategory.AGENT_ACTION || it.category == LogCategory.AGENT_MESSAGE
+            }
+        }
         findViewById<TextView>(R.id.detailSteps).text = stepCount.toString()
 
-        // Transcript: build from log entries.
+        // Transcript -- prefer the snapshotted transcript from MonitorActivity to avoid race.
         val transcriptText = findViewById<TextView>(R.id.transcriptText)
-        transcriptText.text = logEntries.joinToString("\n")
+        val transcript = intent.getStringExtra(EXTRA_TRANSCRIPT)
+        transcriptText.text = if (!transcript.isNullOrBlank()) {
+            transcript
+        } else {
+            // Backwards compat: build from AgentLogStore directly.
+            AgentLogStore.entries.value
+                .filter { it.category != LogCategory.DEBUG }
+                .joinToString("\n") { "[${it.formattedTime}] ${it.displayMessage}" }
+        }
 
         // Expandable transcript card.
         val transcriptHeader = findViewById<View>(R.id.transcriptHeader)
@@ -74,6 +88,24 @@ class CompleteActivity : AppCompatActivity() {
             startActivity(intent)
             finish()
         }
+
+        // Share button.
+        findViewById<MaterialButton>(R.id.btnShare).setOnClickListener {
+            val shareText = buildString {
+                appendLine("Resolve got my issue sorted!")
+                appendLine()
+                appendLine("App: $targetApp")
+                appendLine("Outcome: $outcome")
+                appendLine("Time: $elapsed")
+                appendLine()
+                append(summary)
+            }
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, shareText)
+            }
+            startActivity(Intent.createChooser(shareIntent, getString(R.string.complete_share_chooser)))
+        }
     }
 
     companion object {
@@ -81,5 +113,7 @@ class CompleteActivity : AppCompatActivity() {
         const val EXTRA_TARGET_APP = "extra_target_app"
         const val EXTRA_OUTCOME = "extra_outcome"
         const val EXTRA_START_TIME = "extra_start_time"
+        const val EXTRA_TRANSCRIPT = "extra_transcript"
+        const val EXTRA_STEP_COUNT = "extra_step_count"
     }
 }

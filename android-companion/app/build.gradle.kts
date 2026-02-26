@@ -11,10 +11,12 @@ android {
     applicationId = "com.cssupport.companion"
     minSdk = 28  // Raised to 28 (Android 9) for EncryptedSharedPreferences support.
     targetSdk = 35
-    versionCode = 2
-    versionName = "0.2.0"
+    versionCode = 3
+    versionName = "0.3.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    buildConfigField("String", "CHATGPT_OAUTH_CLIENT_ID", "\"${project.findProperty("CHATGPT_OAUTH_CLIENT_ID") ?: "app_EMoamEEZ73f0CkXaXp7hrann"}\"")
   }
 
   buildTypes {
@@ -35,6 +37,10 @@ android {
   kotlinOptions {
     jvmTarget = "17"
   }
+
+  buildFeatures {
+    buildConfig = true
+  }
 }
 
 dependencies {
@@ -46,6 +52,9 @@ dependencies {
 
   // Encrypted SharedPreferences for secure credential storage.
   implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+  // Chrome Custom Tabs for OAuth browser flows
+  implementation("androidx.browser:browser:1.8.0")
 
   // Layout components used across screens
   implementation("androidx.coordinatorlayout:coordinatorlayout:1.2.0")

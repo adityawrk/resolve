@@ -127,15 +127,4 @@
   <color name="bubble_agent_text">#E6E1E5</color>
   <color name="bubble_support_text">#E5DEFF</color>
 
-  <!-- Backward-compatible aliases (remove after full migration) -->
-  <color name="bg_top">#F1F6FF</color>
-  <color name="bg_mid">#ECF9F3</color>
-  <color name="bg_bottom">#E8F0FF</color>
-  <color name="surface">#FFFDFB</color>
-  <color name="ink">#0F1F2A</color>
-  <color name="ink_soft">#496071</color>
-  <color name="primary">#5B4BC7</color>
-  <color name="secondary">#5F5C71</color>
-  <color name="secondary_container">#E5DFF9</color>
-  <color name="card_stroke">#CBC4CF</color>
 </resources>

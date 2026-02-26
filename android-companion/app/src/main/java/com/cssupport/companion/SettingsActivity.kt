@@ -11,6 +11,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import com.google.android.material.textfield.TextInputEditText
@@ -26,7 +27,6 @@ import com.google.android.material.textfield.TextInputEditText
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var authManager: AuthManager
-    private lateinit var appPrefs: AppPrefs
 
     // Provider section
     private lateinit var currentProviderText: TextView
@@ -53,7 +53,6 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_settings)
 
         authManager = AuthManager(this)
-        appPrefs = AppPrefs(this)
 
         // Top bar back button.
         findViewById<MaterialButton>(R.id.btnBack).setOnClickListener { finish() }
@@ -68,14 +67,28 @@ class SettingsActivity : AppCompatActivity() {
         refreshUI()
     }
 
-    private fun handleConfigIntent(intent: Intent) {
-        val provider = intent.getStringExtra("llm_provider") ?: return
-        val apiKey = intent.getStringExtra("llm_api_key") ?: return
-        val model = intent.getStringExtra("llm_model") ?: return
-        val endpoint = intent.getStringExtra("llm_endpoint")
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleConfigIntent(intent)
+        refreshUI()
+    }
 
-        val llmProvider = when (provider) {
-            "azure" -> LLMProvider.AZURE_OPENAI
+    private fun handleConfigIntent(intent: Intent) {
+        // Only allow intent-based config injection in debug builds.
+        if (!BuildConfig.DEBUG) return
+
+        // Accept both naming conventions for ADB injection.
+        val provider = intent.getStringExtra("llm_provider")
+            ?: intent.getStringExtra("debug_provider") ?: return
+        val apiKey = intent.getStringExtra("llm_api_key")
+            ?: intent.getStringExtra("debug_key") ?: return
+        val model = intent.getStringExtra("llm_model")
+            ?: intent.getStringExtra("debug_model") ?: return
+        val endpoint = intent.getStringExtra("llm_endpoint")
+            ?: intent.getStringExtra("debug_endpoint")
+
+        val llmProvider = when (provider.lowercase()) {
+            "azure", "azure openai", "azure_openai" -> LLMProvider.AZURE_OPENAI
             "openai" -> LLMProvider.OPENAI
             "anthropic" -> LLMProvider.ANTHROPIC
             else -> LLMProvider.CUSTOM
@@ -87,6 +100,8 @@ class SettingsActivity : AppCompatActivity() {
             model = model,
             endpoint = endpoint,
         )
+
+        android.util.Log.i("SettingsActivity", "Config injected via intent: provider=$provider, model=$model")
     }
 
     override fun onResume() {
@@ -110,7 +125,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun setupProviderDropdown() {
-        val providers = arrayOf("Azure OpenAI", "OpenAI", "Anthropic", "Custom")
+        val providers = resources.getStringArray(R.array.settings_provider_list)
         val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, providers)
         providerDropdown.setAdapter(adapter)
     }
@@ -122,11 +137,27 @@ class SettingsActivity : AppCompatActivity() {
             btnSwitchAuth.text = if (isVisible) {
                 getString(R.string.settings_switch_auth)
             } else {
-                "Hide API key fields"
+                getString(R.string.settings_hide_api_fields)
             }
         }
 
         btnSaveApiConfig.setOnClickListener { saveApiConfig() }
+
+        findViewById<MaterialButton>(R.id.btnSignOut).setOnClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setMessage(getString(R.string.settings_sign_out_confirm))
+                .setPositiveButton(getString(R.string.settings_sign_out)) { _, _ ->
+                    authManager.clearAll()
+                    // Navigate to WelcomeActivity and clear back stack.
+                    val intent = Intent(this, WelcomeActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    }
+                    startActivity(intent)
+                    finish()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
 
         findViewById<LinearLayout>(R.id.accessibilityRow).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -166,9 +197,9 @@ class SettingsActivity : AppCompatActivity() {
             apiModelInput.setText(config.model)
             // Don't pre-fill the key for security.
         } else if (authManager.isOAuthTokenValid()) {
-            currentProviderText.text = "ChatGPT (OAuth)"
+            currentProviderText.text = getString(R.string.settings_provider_oauth)
         } else {
-            currentProviderText.text = "Not configured"
+            currentProviderText.text = getString(R.string.settings_not_configured)
             // Show the API key section by default if nothing is configured.
             apiKeySection.visibility = View.VISIBLE
         }
@@ -190,7 +221,11 @@ class SettingsActivity : AppCompatActivity() {
             if (running) R.drawable.bg_status_dot_success
             else R.drawable.bg_status_dot_error,
         )
-        accessibilityStatusText.text = if (running) "Enabled and running" else "Not enabled"
+        accessibilityStatusText.text = if (running) {
+            getString(R.string.settings_accessibility_enabled)
+        } else {
+            getString(R.string.settings_accessibility_disabled)
+        }
     }
 
     private fun saveApiConfig() {
@@ -231,7 +266,7 @@ class SettingsActivity : AppCompatActivity() {
             endpoint = endpoint.ifBlank { null },
         )
 
-        Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.settings_saved), Toast.LENGTH_SHORT).show()
         apiKeySection.visibility = View.GONE
         btnSwitchAuth.text = getString(R.string.settings_switch_auth)
         refreshUI()

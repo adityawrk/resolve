@@ -12,6 +12,7 @@ import android.util.Log
 class SafetyPolicy(
     private val maxIterations: Int = MAX_ITERATIONS,
     private val minActionDelayMs: Long = MIN_ACTION_DELAY_MS,
+    private val autoApproveSafeActions: Boolean = false,
 ) {
 
     private val tag = "SafetyPolicy"
@@ -31,7 +32,16 @@ class SafetyPolicy(
 
         return when (action) {
             is AgentAction.TypeMessage -> validateMessage(action.text)
-            is AgentAction.ClickButton -> validateClick(action.buttonLabel)
+            is AgentAction.ClickButton -> {
+                val result = validateClick(action.buttonLabel)
+                // Auto-approve safe click actions when the user has opted in.
+                // Message-level blocks (PII, passwords) are never auto-approved.
+                if (result is PolicyResult.NeedsApproval && autoApproveSafeActions) {
+                    PolicyResult.Allowed
+                } else {
+                    result
+                }
+            }
             is AgentAction.MarkResolved -> PolicyResult.Allowed
             is AgentAction.RequestHumanReview -> PolicyResult.Allowed
             is AgentAction.Wait -> PolicyResult.Allowed

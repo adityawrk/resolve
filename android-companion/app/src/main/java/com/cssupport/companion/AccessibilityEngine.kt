@@ -57,13 +57,45 @@ class AccessibilityEngine(private val service: AccessibilityService) {
     /**
      * Capture the full screen state from the current accessibility tree.
      * Returns a structured [ScreenState] with all visible UI elements.
+     *
+     * Uses the event-tracked [currentPackageRef] as the authoritative source for the
+     * foreground package. When [rootInActiveWindow] returns a stale window (package
+     * doesn't match the event-tracked one), searches [service.windows] for the correct
+     * app window to get an accurate node tree.
      */
     fun captureScreenState(): ScreenState {
-        val rootNode = service.rootInActiveWindow
+        // Event-tracked package is the authoritative source for which app is in foreground.
+        val eventPackage = currentPackageRef.get()
+
+        var rootNode = service.rootInActiveWindow
+
+        // If rootInActiveWindow has a stale package, try to find the correct window.
+        if (rootNode != null && eventPackage != null
+            && rootNode.packageName?.toString() != eventPackage
+        ) {
+            Log.d(tag, "rootInActiveWindow is stale (has ${rootNode.packageName}, " +
+                "expected $eventPackage) — searching windows")
+            safeRecycle(rootNode)
+            rootNode = null
+            try {
+                for (window in service.windows) {
+                    val windowRoot = window.root ?: continue
+                    if (windowRoot.packageName?.toString() == eventPackage) {
+                        rootNode = windowRoot
+                        break
+                    } else {
+                        safeRecycle(windowRoot)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to enumerate windows: ${e.message}")
+            }
+        }
+
         if (rootNode == null) {
-            Log.w(tag, "captureScreenState: rootInActiveWindow is null")
+            Log.w(tag, "captureScreenState: no valid root node found")
             return ScreenState(
-                packageName = currentPackageRef.get().orEmpty(),
+                packageName = eventPackage.orEmpty(),
                 activityName = currentActivityRef.get(),
                 elements = emptyList(),
                 focusedElement = null,
@@ -84,8 +116,12 @@ class AccessibilityEngine(private val service: AccessibilityService) {
                 safeRecycle(focusedNode)
             }
 
+            // Prefer event-tracked package, fall back to root node's package.
+            val packageName = eventPackage
+                ?: rootNode.packageName?.toString().orEmpty()
+
             ScreenState(
-                packageName = rootNode.packageName?.toString().orEmpty(),
+                packageName = packageName,
                 activityName = currentActivityRef.get(),
                 elements = elements,
                 focusedElement = focusedElement,
@@ -596,6 +632,11 @@ data class ScreenState(
         sb.appendLine("Package: $packageName")
         if (activityName != null) {
             sb.appendLine("Activity: $activityName")
+            // Provide a human-readable hint from the activity class name.
+            val simpleName = activityName.substringAfterLast(".")
+            if (simpleName.isNotBlank()) {
+                sb.appendLine("Screen hint: $simpleName")
+            }
         }
         sb.appendLine()
 

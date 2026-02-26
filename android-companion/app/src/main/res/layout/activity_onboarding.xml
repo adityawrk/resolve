@@ -1,30 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- ================================================================
-     Screen 2: Onboarding / Permissions
-     - Title + subtitle at top
-     - Two permission cards (Accessibility, Notifications)
-     - Each card: icon, title, description, enable button, status
-     - "Continue" button at bottom (only enabled when required
-       permissions are granted)
-
-     Typography:
-       Title:      headlineSmall (24sp, medium)
-       Subtitle:   bodyMedium (14sp), onSurfaceVariant
-       Card title: titleSmall (14sp, medium)
-       Card desc:  bodySmall (12sp), onSurfaceVariant, leading 1.5
-       Badge:      labelSmall (11sp), error container
-       Button:     labelLarge (14sp)
-
-     Spacing:
-       Page padding: 24dp horizontal, 32dp top
-       Title to subtitle: 8dp
-       Subtitle to cards: 32dp
-       Between cards: 16dp
-       Card internal padding: 20dp
-       Icon to text: 16dp
-       Title to desc: 4dp
-       Desc to button: 16dp
-       Cards to continue: flex (pushed to bottom)
+     Onboarding — Single-step accessibility permission.
+     Steps are always visible so the user knows what to do
+     BEFORE they leave the app.
      ================================================================ -->
 
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -39,227 +17,135 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:paddingHorizontal="@dimen/page_horizontal"
-    android:paddingTop="@dimen/space_xl"
-    android:paddingBottom="@dimen/space_lg">
+    android:paddingTop="@dimen/space_3xl"
+    android:paddingBottom="@dimen/space_lg"
+    android:gravity="center_horizontal">
 
-    <!-- Header -->
+    <!-- Icon -->
+    <ImageView
+      android:layout_width="56dp"
+      android:layout_height="56dp"
+      android:src="@drawable/ic_accessibility"
+      android:contentDescription="Accessibility icon"
+      android:layout_marginBottom="@dimen/space_lg" />
+
+    <!-- Title -->
     <TextView
-      android:layout_width="wrap_content"
+      android:layout_width="match_parent"
       android:layout_height="wrap_content"
       android:text="@string/onboarding_title"
       android:textAppearance="?attr/textAppearanceHeadlineSmall"
       android:textColor="?attr/colorOnSurface"
-      android:fontFamily="sans-serif-medium" />
+      android:gravity="center" />
 
+    <!-- Subtitle -->
     <TextView
-      android:layout_width="wrap_content"
+      android:layout_width="match_parent"
       android:layout_height="wrap_content"
       android:layout_marginTop="@dimen/space_sm"
       android:text="@string/onboarding_subtitle"
       android:textAppearance="?attr/textAppearanceBodyMedium"
       android:textColor="?attr/colorOnSurfaceVariant"
-      android:lineSpacingMultiplier="1.4" />
+      android:lineSpacingMultiplier="1.4"
+      android:gravity="center" />
 
-    <!-- Permission Cards -->
-    <LinearLayout
+    <!-- Steps card — always visible -->
+    <com.google.android.material.card.MaterialCardView
       android:layout_width="match_parent"
       android:layout_height="wrap_content"
       android:layout_marginTop="@dimen/space_xl"
-      android:orientation="vertical">
+      app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+      app:cardCornerRadius="@dimen/radius_button"
+      app:strokeWidth="0dp">
 
-      <!-- Card 1: Accessibility Service (Required) -->
-      <com.google.android.material.card.MaterialCardView
-        android:id="@+id/cardAccessibility"
-        style="@style/Resolve.Card.Outlined"
+      <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
-        app:strokeColor="?attr/colorOutlineVariant">
+        android:orientation="vertical"
+        android:padding="@dimen/card_padding">
 
+        <!-- Step 1 -->
         <LinearLayout
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
-          android:orientation="vertical"
-          android:padding="@dimen/card_padding">
+          android:orientation="horizontal"
+          android:gravity="center_vertical">
 
-          <!-- Top row: icon + title + required badge -->
-          <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <ImageView
-              android:layout_width="24dp"
-              android:layout_height="24dp"
-              android:src="@drawable/ic_accessibility"
-              android:contentDescription="Accessibility icon" />
-
-            <TextView
-              android:layout_width="0dp"
-              android:layout_height="wrap_content"
-              android:layout_weight="1"
-              android:layout_marginStart="@dimen/space_md"
-              android:text="@string/permission_accessibility_title"
-              android:textAppearance="?attr/textAppearanceTitleSmall"
-              android:textColor="?attr/colorOnSurface" />
-
-            <!-- Required badge -->
-            <TextView
-              android:layout_width="wrap_content"
-              android:layout_height="wrap_content"
-              android:text="@string/permission_accessibility_required"
-              android:textAppearance="?attr/textAppearanceLabelSmall"
-              android:textColor="?attr/colorError"
-              android:background="@drawable/bg_thumbnail_placeholder"
-              android:backgroundTint="?attr/colorErrorContainer"
-              android:paddingHorizontal="@dimen/space_sm"
-              android:paddingVertical="2dp" />
-          </LinearLayout>
-
-          <!-- Description -->
           <TextView
-            android:layout_width="match_parent"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="1"
+            android:textAppearance="?attr/textAppearanceLabelLarge"
+            android:textColor="?attr/colorOnPrimary"
+            android:background="@drawable/bg_step_circle"
+            android:gravity="center" />
+
+          <TextView
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_sm"
-            android:layout_marginStart="36dp"
-            android:text="@string/permission_accessibility_desc"
-            android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:lineSpacingMultiplier="1.5" />
-
-          <!-- Enable button row -->
-          <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_base"
-            android:layout_marginStart="36dp">
-
-            <com.google.android.material.button.MaterialButton
-              android:id="@+id/btnEnableAccessibility"
-              style="@style/Resolve.Button.Tonal"
-              android:layout_width="wrap_content"
-              android:layout_height="44dp"
-              android:text="@string/permission_enable" />
-
-            <!-- Granted indicator (initially hidden) -->
-            <LinearLayout
-              android:id="@+id/accessibilityGrantedRow"
-              android:layout_width="wrap_content"
-              android:layout_height="44dp"
-              android:orientation="horizontal"
-              android:gravity="center_vertical"
-              android:visibility="gone">
-
-              <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@drawable/ic_check_circle"
-                android:contentDescription="Granted" />
-
-              <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="@dimen/space_sm"
-                android:text="@string/permission_granted"
-                android:textAppearance="?attr/textAppearanceLabelMedium"
-                android:textColor="@color/status_success" />
-            </LinearLayout>
-          </FrameLayout>
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/onboarding_step_1"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurface" />
         </LinearLayout>
-      </com.google.android.material.card.MaterialCardView>
 
-      <!-- Card 2: Notifications -->
-      <com.google.android.material.card.MaterialCardView
-        android:id="@+id/cardNotifications"
-        style="@style/Resolve.Card.Outlined"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/item_gap"
-        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
-        app:strokeColor="?attr/colorOutlineVariant">
-
+        <!-- Step 2 -->
         <LinearLayout
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
-          android:orientation="vertical"
-          android:padding="@dimen/card_padding">
+          android:orientation="horizontal"
+          android:gravity="center_vertical"
+          android:layout_marginTop="@dimen/space_base">
 
-          <!-- Top row: icon + title -->
-          <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <ImageView
-              android:layout_width="24dp"
-              android:layout_height="24dp"
-              android:src="@drawable/ic_notifications"
-              android:contentDescription="Notifications icon" />
-
-            <TextView
-              android:layout_width="0dp"
-              android:layout_height="wrap_content"
-              android:layout_weight="1"
-              android:layout_marginStart="@dimen/space_md"
-              android:text="@string/permission_notifications_title"
-              android:textAppearance="?attr/textAppearanceTitleSmall"
-              android:textColor="?attr/colorOnSurface" />
-          </LinearLayout>
-
-          <!-- Description -->
           <TextView
-            android:layout_width="match_parent"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="2"
+            android:textAppearance="?attr/textAppearanceLabelLarge"
+            android:textColor="?attr/colorOnPrimary"
+            android:background="@drawable/bg_step_circle"
+            android:gravity="center" />
+
+          <TextView
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_sm"
-            android:layout_marginStart="36dp"
-            android:text="@string/permission_notifications_desc"
-            android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:lineSpacingMultiplier="1.5" />
-
-          <!-- Enable button row -->
-          <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_base"
-            android:layout_marginStart="36dp">
-
-            <com.google.android.material.button.MaterialButton
-              android:id="@+id/btnEnableNotifications"
-              style="@style/Resolve.Button.Tonal"
-              android:layout_width="wrap_content"
-              android:layout_height="44dp"
-              android:text="@string/permission_enable" />
-
-            <!-- Granted indicator (initially hidden) -->
-            <LinearLayout
-              android:id="@+id/notificationsGrantedRow"
-              android:layout_width="wrap_content"
-              android:layout_height="44dp"
-              android:orientation="horizontal"
-              android:gravity="center_vertical"
-              android:visibility="gone">
-
-              <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@drawable/ic_check_circle"
-                android:contentDescription="Granted" />
-
-              <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="@dimen/space_sm"
-                android:text="@string/permission_granted"
-                android:textAppearance="?attr/textAppearanceLabelMedium"
-                android:textColor="@color/status_success" />
-            </LinearLayout>
-          </FrameLayout>
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/onboarding_step_2"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurface" />
         </LinearLayout>
-      </com.google.android.material.card.MaterialCardView>
-    </LinearLayout>
+
+        <!-- Step 3 -->
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="horizontal"
+          android:gravity="center_vertical"
+          android:layout_marginTop="@dimen/space_base">
+
+          <TextView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="3"
+            android:textAppearance="?attr/textAppearanceLabelLarge"
+            android:textColor="?attr/colorOnPrimary"
+            android:background="@drawable/bg_step_circle"
+            android:gravity="center" />
+
+          <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/onboarding_step_3"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurface" />
+        </LinearLayout>
+
+      </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
     <!-- Spacer -->
     <View
@@ -267,14 +153,13 @@
       android:layout_height="0dp"
       android:layout_weight="1" />
 
-    <!-- Continue button: disabled until required permissions granted -->
+    <!-- Button -->
     <com.google.android.material.button.MaterialButton
-      android:id="@+id/btnContinue"
+      android:id="@+id/btnAllowAccess"
       style="@style/Resolve.Button.Primary"
       android:layout_width="match_parent"
       android:layout_height="@dimen/button_height_primary"
-      android:text="@string/onboarding_continue"
-      android:enabled="false" />
+      android:text="@string/onboarding_allow_access" />
 
   </LinearLayout>
 </FrameLayout>
