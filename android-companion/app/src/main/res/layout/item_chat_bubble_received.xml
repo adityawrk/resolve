@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Chat bubble: message received FROM the support agent (left-aligned, neutral surface) -->
+
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:paddingVertical="@dimen/space_xs">
+
+  <LinearLayout
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_gravity="start"
+    android:orientation="vertical"
+    android:maxWidth="@dimen/bubble_max_width"
+    android:background="@drawable/bg_bubble_agent"
+    android:paddingHorizontal="@dimen/bubble_padding_horizontal"
+    android:paddingVertical="@dimen/bubble_padding_vertical">
+
+    <!-- Sender label -->
+    <TextView
+      android:id="@+id/senderLabel"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:textAppearance="?attr/textAppearanceLabelSmall"
+      android:textColor="@color/bubble_agent_text"
+      android:alpha="0.7"
+      tools:text="Amazon Support" />
+
+    <!-- Message text -->
+    <TextView
+      android:id="@+id/bubbleText"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="2dp"
+      android:textAppearance="?attr/textAppearanceBodyMedium"
+      android:textColor="@color/bubble_agent_text"
+      android:lineSpacingMultiplier="1.3"
+      tools:text="I understand your concern. Let me look into order #12345 for you. Can you share a photo of the damaged item?" />
+  </LinearLayout>
+</FrameLayout>

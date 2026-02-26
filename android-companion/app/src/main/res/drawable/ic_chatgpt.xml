@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simplified ChatGPT-style icon for the OAuth button -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  android:width="24dp"
+  android:height="24dp"
+  android:viewportWidth="24"
+  android:viewportHeight="24">
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,4c1.93,0 3.68,0.71 5.04,1.87L8.71,17.04C7.07,15.68 6,13.72 6,11.5c0,-0.83 0.67,-1.5 1.5,-1.5S9,10.67 9,11.5c0,1.38 1.12,2.5 2.5,2.5h1c1.38,0 2.5,-1.12 2.5,-2.5S13.88,9 12.5,9h-1C10.12,9 9,7.88 9,6.5S10.12,4 11.5,4H12zM12,20c-1.93,0 -3.68,-0.71 -5.04,-1.87L15.29,6.96C16.93,8.32 18,10.28 18,12.5c0,0.83 -0.67,1.5 -1.5,1.5S15,13.33 15,12.5c0,-1.38 -1.12,-2.5 -2.5,-2.5h-1c-1.38,0 -2.5,1.12 -2.5,2.5s1.12,2.5 2.5,2.5h1c1.38,0 2.5,1.12 2.5,2.5S13.88,20 12.5,20H12z" />
+</vector>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Subtle radial gradient behind the logo on the welcome screen.
+     Dark theme: very subtle purple glow on true black.
+     Light theme: gentle purple wash. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+  android:shape="oval">
+  <gradient
+    android:type="radial"
+    android:gradientRadius="200dp"
+    android:startColor="#186C5CE7"
+    android:endColor="#00000000" />
+  <size
+    android:width="400dp"
+    android:height="400dp" />
+</shape>

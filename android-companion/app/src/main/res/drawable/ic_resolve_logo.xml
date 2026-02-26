@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Resolve app logo: abstract "R" formed by geometric shapes
+     Purple gradient reflecting the brand seed color -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  android:width="80dp"
+  android:height="80dp"
+  android:viewportWidth="80"
+  android:viewportHeight="80">
+
+  <!-- Background rounded square -->
+  <path
+    android:fillColor="#6C5CE7"
+    android:pathData="M0,20C0,8.95 8.95,0 20,0L60,0C71.05,0 80,8.95 80,20L80,60C80,71.05 71.05,80 60,80L20,80C8.95,80 0,71.05 0,60Z" />
+
+  <!-- Stylized "R" letterform - vertical stroke -->
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M24,18L32,18L32,62L24,62Z" />
+
+  <!-- "R" head curve -->
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M32,18L48,18C54.63,18 60,23.37 60,30C60,36.63 54.63,42 48,42L32,42Z" />
+
+  <!-- "R" leg / diagonal kick -->
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M42,42L56,62L46,62L32,42Z" />
+
+  <!-- Accent dot (lighter purple to suggest AI/intelligence) -->
+  <path
+    android:fillColor="#A855F7"
+    android:pathData="M50,30m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
+</vector>

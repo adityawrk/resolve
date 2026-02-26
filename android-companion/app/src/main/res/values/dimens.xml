@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- ============================================================
+       Resolve Design System - Spacing & Dimension Tokens
+       Base unit: 4dp. All values are multiples.
+       ============================================================ -->
+
+  <!-- Spacing scale -->
+  <dimen name="space_xs">4dp</dimen>
+  <dimen name="space_sm">8dp</dimen>
+  <dimen name="space_md">12dp</dimen>
+  <dimen name="space_base">16dp</dimen>
+  <dimen name="space_lg">24dp</dimen>
+  <dimen name="space_xl">32dp</dimen>
+  <dimen name="space_2xl">48dp</dimen>
+  <dimen name="space_3xl">64dp</dimen>
+
+  <!-- Page margins -->
+  <dimen name="page_horizontal">24dp</dimen>
+  <dimen name="page_vertical">16dp</dimen>
+
+  <!-- Section gaps -->
+  <dimen name="section_gap">24dp</dimen>
+  <dimen name="item_gap">16dp</dimen>
+  <dimen name="element_gap">8dp</dimen>
+
+  <!-- Corner radii -->
+  <dimen name="radius_card">28dp</dimen>
+  <dimen name="radius_button">16dp</dimen>
+  <dimen name="radius_chip">12dp</dimen>
+  <dimen name="radius_input">16dp</dimen>
+  <dimen name="radius_thumbnail">12dp</dimen>
+  <dimen name="radius_full">999dp</dimen>
+
+  <!-- Component sizes -->
+  <dimen name="button_height_primary">56dp</dimen>
+  <dimen name="button_height_secondary">48dp</dimen>
+  <dimen name="chip_height">36dp</dimen>
+  <dimen name="input_min_height">56dp</dimen>
+  <dimen name="top_bar_height">64dp</dimen>
+  <dimen name="thumbnail_size">72dp</dimen>
+  <dimen name="app_icon_size">48dp</dimen>
+  <dimen name="status_dot_size">8dp</dimen>
+  <dimen name="avatar_size">40dp</dimen>
+
+  <!-- Card internal padding -->
+  <dimen name="card_padding">20dp</dimen>
+  <dimen name="card_padding_compact">16dp</dimen>
+
+  <!-- Logo / branding -->
+  <dimen name="logo_size">80dp</dimen>
+  <dimen name="logo_size_small">48dp</dimen>
+
+  <!-- Progress indicator -->
+  <dimen name="progress_bar_height">4dp</dimen>
+
+  <!-- Chat bubbles -->
+  <dimen name="bubble_padding_horizontal">16dp</dimen>
+  <dimen name="bubble_padding_vertical">12dp</dimen>
+  <dimen name="bubble_radius">20dp</dimen>
+  <dimen name="bubble_max_width">280dp</dimen>
+</resources>

@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- ============================================================
+       Resolve Design System - Color Tokens
+       Seed: Purple #6C5CE7
+       Material 3 tonal palette generated from seed
+       ============================================================ -->
+
+  <!-- Primary (Purple) -->
+  <color name="md_theme_light_primary">#5B4BC7</color>
+  <color name="md_theme_light_onPrimary">#FFFFFF</color>
+  <color name="md_theme_light_primaryContainer">#E5DEFF</color>
+  <color name="md_theme_light_onPrimaryContainer">#180065</color>
+
+  <!-- Secondary (Muted purple-blue) -->
+  <color name="md_theme_light_secondary">#5F5C71</color>
+  <color name="md_theme_light_onSecondary">#FFFFFF</color>
+  <color name="md_theme_light_secondaryContainer">#E5DFF9</color>
+  <color name="md_theme_light_onSecondaryContainer">#1C192B</color>
+
+  <!-- Tertiary (Rose) -->
+  <color name="md_theme_light_tertiary">#7B5265</color>
+  <color name="md_theme_light_onTertiary">#FFFFFF</color>
+  <color name="md_theme_light_tertiaryContainer">#FFD8E8</color>
+  <color name="md_theme_light_onTertiaryContainer">#301121</color>
+
+  <!-- Error -->
+  <color name="md_theme_light_error">#BA1A1A</color>
+  <color name="md_theme_light_onError">#FFFFFF</color>
+  <color name="md_theme_light_errorContainer">#FFDAD6</color>
+  <color name="md_theme_light_onErrorContainer">#410002</color>
+
+  <!-- Background & Surface -->
+  <color name="md_theme_light_background">#FFFBFF</color>
+  <color name="md_theme_light_onBackground">#1C1B1F</color>
+  <color name="md_theme_light_surface">#FFFBFF</color>
+  <color name="md_theme_light_onSurface">#1C1B1F</color>
+  <color name="md_theme_light_surfaceVariant">#E7E0EC</color>
+  <color name="md_theme_light_onSurfaceVariant">#49454F</color>
+  <color name="md_theme_light_surfaceContainerLowest">#FFFFFF</color>
+  <color name="md_theme_light_surfaceContainerLow">#F7F2FA</color>
+  <color name="md_theme_light_surfaceContainer">#F1ECF4</color>
+  <color name="md_theme_light_surfaceContainerHigh">#ECE6F0</color>
+  <color name="md_theme_light_surfaceContainerHighest">#E6E0E9</color>
+
+  <!-- Outline -->
+  <color name="md_theme_light_outline">#7A757F</color>
+  <color name="md_theme_light_outlineVariant">#CBC4CF</color>
+  <color name="md_theme_light_inverseSurface">#313033</color>
+  <color name="md_theme_light_inverseOnSurface">#F4EFF4</color>
+  <color name="md_theme_light_inversePrimary">#C9BFFF</color>
+
+  <!-- ============================================================
+       Dark Theme - OLED-friendly true blacks
+       ============================================================ -->
+
+  <!-- Primary -->
+  <color name="md_theme_dark_primary">#C9BFFF</color>
+  <color name="md_theme_dark_onPrimary">#2D0F8E</color>
+  <color name="md_theme_dark_primaryContainer">#4432AE</color>
+  <color name="md_theme_dark_onPrimaryContainer">#E5DEFF</color>
+
+  <!-- Secondary -->
+  <color name="md_theme_dark_secondary">#C9C3DC</color>
+  <color name="md_theme_dark_onSecondary">#312E41</color>
+  <color name="md_theme_dark_secondaryContainer">#474459</color>
+  <color name="md_theme_dark_onSecondaryContainer">#E5DFF9</color>
+
+  <!-- Tertiary -->
+  <color name="md_theme_dark_tertiary">#EDB8CE</color>
+  <color name="md_theme_dark_onTertiary">#482536</color>
+  <color name="md_theme_dark_tertiaryContainer">#623B4D</color>
+  <color name="md_theme_dark_onTertiaryContainer">#FFD8E8</color>
+
+  <!-- Error -->
+  <color name="md_theme_dark_error">#FFB4AB</color>
+  <color name="md_theme_dark_onError">#690005</color>
+  <color name="md_theme_dark_errorContainer">#93000A</color>
+  <color name="md_theme_dark_onErrorContainer">#FFDAD6</color>
+
+  <!-- Background & Surface (true black base for OLED) -->
+  <color name="md_theme_dark_background">#000000</color>
+  <color name="md_theme_dark_onBackground">#E6E1E5</color>
+  <color name="md_theme_dark_surface">#000000</color>
+  <color name="md_theme_dark_onSurface">#E6E1E5</color>
+  <color name="md_theme_dark_surfaceVariant">#49454F</color>
+  <color name="md_theme_dark_onSurfaceVariant">#CBC4CF</color>
+  <color name="md_theme_dark_surfaceContainerLowest">#000000</color>
+  <color name="md_theme_dark_surfaceContainerLow">#1C1B1F</color>
+  <color name="md_theme_dark_surfaceContainer">#211F26</color>
+  <color name="md_theme_dark_surfaceContainerHigh">#2B2930</color>
+  <color name="md_theme_dark_surfaceContainerHighest">#36343B</color>
+
+  <!-- Outline -->
+  <color name="md_theme_dark_outline">#948F99</color>
+  <color name="md_theme_dark_outlineVariant">#49454F</color>
+  <color name="md_theme_dark_inverseSurface">#E6E1E5</color>
+  <color name="md_theme_dark_inverseOnSurface">#313033</color>
+  <color name="md_theme_dark_inversePrimary">#5B4BC7</color>
+
+  <!-- ============================================================
+       Semantic Status Colors (same for both themes)
+       ============================================================ -->
+  <color name="status_success">#34C759</color>
+  <color name="status_success_container">#0D3318</color>
+  <color name="status_success_on_container">#A3F0B5</color>
+  <color name="status_warning">#FFBF00</color>
+  <color name="status_warning_container">#332600</color>
+  <color name="status_warning_on_container">#FFE082</color>
+  <color name="status_error">#FF453A</color>
+  <color name="status_error_container">#330D0B</color>
+
+  <!-- Accent seed for reference -->
+  <color name="seed">#6C5CE7</color>
+
+  <!-- Brand colors used in app icon and welcome screen -->
+  <color name="brand_gradient_start">#6C5CE7</color>
+  <color name="brand_gradient_end">#A855F7</color>
+
+  <!-- Approval card tints -->
+  <color name="approval_surface">#1A1520</color>
+  <color name="approval_border">#6C5CE7</color>
+
+  <!-- Chat bubble colors (dark theme) -->
+  <color name="bubble_agent_bg">#2B2930</color>
+  <color name="bubble_support_bg">#4432AE</color>
+  <color name="bubble_agent_text">#E6E1E5</color>
+  <color name="bubble_support_text">#E5DEFF</color>
+
+  <!-- Backward-compatible aliases (remove after full migration) -->
+  <color name="bg_top">#F1F6FF</color>
+  <color name="bg_mid">#ECF9F3</color>
+  <color name="bg_bottom">#E8F0FF</color>
+  <color name="surface">#FFFDFB</color>
+  <color name="ink">#0F1F2A</color>
+  <color name="ink_soft">#496071</color>
+  <color name="primary">#5B4BC7</color>
+  <color name="secondary">#5F5C71</color>
+  <color name="secondary_container">#E5DFF9</color>
+  <color name="card_stroke">#CBC4CF</color>
+</resources>

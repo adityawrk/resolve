@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ================================================================
+     Screen 1: Welcome / Auth
+     - True black background (OLED)
+     - Centered logo with subtle purple radial glow
+     - App name + tagline
+     - Two auth options separated by "or" divider
+     - Bottom: terms / privacy link
+
+     Typography:
+       App name:  titleLarge (22sp, medium weight)
+       Tagline:   bodyLarge (16sp, normal)
+       Subtitle:  bodyMedium (14sp), onSurfaceVariant
+       Buttons:   labelLarge (14sp, medium)
+
+     Spacing:
+       Page padding: 24dp horizontal
+       Logo to title: 24dp
+       Title to tagline: 8dp
+       Tagline to subtitle: 16dp
+       Subtitle to buttons: 48dp
+       Between buttons: 16dp
+       Divider section: 24dp vertical
+     ================================================================ -->
+
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  xmlns:tools="http://schemas.android.com/tools"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="?attr/colorSurface"
+  android:fitsSystemWindows="true">
+
+  <!-- Subtle purple radial glow behind logo area -->
+  <View
+    android:layout_width="400dp"
+    android:layout_height="400dp"
+    android:layout_gravity="center_horizontal"
+    android:layout_marginTop="-80dp"
+    android:background="@drawable/bg_welcome_gradient"
+    android:alpha="0.6" />
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:paddingHorizontal="@dimen/page_horizontal"
+    android:paddingTop="120dp"
+    android:paddingBottom="32dp">
+
+    <!-- Logo -->
+    <ImageView
+      android:id="@+id/logoImage"
+      android:layout_width="@dimen/logo_size"
+      android:layout_height="@dimen/logo_size"
+      android:src="@drawable/ic_resolve_logo"
+      android:contentDescription="Resolve logo"
+      android:scaleType="fitCenter" />
+
+    <!-- App name -->
+    <TextView
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="@dimen/space_lg"
+      android:text="Resolve"
+      android:textAppearance="?attr/textAppearanceTitleLarge"
+      android:textColor="?attr/colorOnSurface"
+      android:fontFamily="sans-serif-medium"
+      android:letterSpacing="-0.01" />
+
+    <!-- Tagline -->
+    <TextView
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="@dimen/space_sm"
+      android:text="@string/welcome_tagline"
+      android:textAppearance="?attr/textAppearanceBodyLarge"
+      android:textColor="?attr/colorOnSurfaceVariant" />
+
+    <!-- Subtitle (longer description) -->
+    <TextView
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="@dimen/space_base"
+      android:layout_marginHorizontal="@dimen/space_base"
+      android:text="@string/welcome_subtitle"
+      android:textAppearance="?attr/textAppearanceBodyMedium"
+      android:textColor="?attr/colorOnSurfaceVariant"
+      android:textAlignment="center"
+      android:lineSpacingMultiplier="1.4"
+      android:alpha="0.7" />
+
+    <!-- Spacer pushes buttons down -->
+    <View
+      android:layout_width="0dp"
+      android:layout_height="0dp"
+      android:layout_weight="1" />
+
+    <!-- ChatGPT OAuth button: filled, full-width, 56dp height -->
+    <com.google.android.material.button.MaterialButton
+      android:id="@+id/btnSignInChatGPT"
+      style="@style/Resolve.Button.Primary"
+      android:layout_width="match_parent"
+      android:layout_height="@dimen/button_height_primary"
+      android:text="@string/sign_in_chatgpt"
+      app:icon="@drawable/ic_chatgpt"
+      app:iconGravity="textStart"
+      app:iconPadding="12dp"
+      app:iconSize="20dp" />
+
+    <!-- Divider with "or" text -->
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginVertical="@dimen/space_lg"
+      android:orientation="horizontal"
+      android:gravity="center_vertical">
+
+      <View
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:layout_weight="1"
+        android:background="?attr/colorOutlineVariant"
+        android:alpha="0.4" />
+
+      <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="@dimen/space_base"
+        android:text="@string/auth_divider"
+        android:textAppearance="?attr/textAppearanceLabelMedium"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:alpha="0.6" />
+
+      <View
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:layout_weight="1"
+        android:background="?attr/colorOutlineVariant"
+        android:alpha="0.4" />
+    </LinearLayout>
+
+    <!-- API key button: outlined, full-width -->
+    <com.google.android.material.button.MaterialButton
+      android:id="@+id/btnUseApiKey"
+      style="@style/Resolve.Button.Outlined"
+      android:layout_width="match_parent"
+      android:layout_height="@dimen/button_height_secondary"
+      android:text="@string/use_api_key"
+      app:icon="@drawable/ic_key"
+      app:iconGravity="textStart"
+      app:iconPadding="12dp"
+      app:iconSize="20dp" />
+
+    <!-- Terms text at bottom -->
+    <TextView
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="@dimen/space_xl"
+      android:text="By continuing, you agree to the Terms of Service"
+      android:textAppearance="?attr/textAppearanceLabelSmall"
+      android:textColor="?attr/colorOnSurfaceVariant"
+      android:alpha="0.5"
+      android:textAlignment="center" />
+
+  </LinearLayout>
+</FrameLayout>

@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ================================================================
+     Screen 4: Agent Live Monitor
+     - Fixed top status bar: app icon + "Working in Amazon..." + step counter
+     - Linear progress indicator (indeterminate while active)
+     - Scrollable activity feed (RecyclerView):
+       - Action items: icon + action text + timestamp
+       - Chat bubbles: messages sent by Resolve (right) / received (left)
+     - Approval card (overlay, shown when agent needs permission)
+     - Fixed bottom: Pause + Stop buttons
+
+     Typography:
+       Status text:   titleSmall (14sp, medium)
+       Step counter:  labelSmall (11sp), onSurfaceVariant
+       Action text:   bodySmall (12sp)
+       Timestamp:     labelSmall (11sp), onSurfaceVariant
+       Bubble text:   bodyMedium (14sp)
+       Approval title: titleMedium (16sp, medium)
+       Approval desc: bodyMedium (14sp)
+       Button labels: labelLarge (14sp, medium)
+
+     Spacing:
+       Page padding: 24dp horizontal
+       Status bar height: 64dp
+       Progress bar: 4dp height, full width
+       Feed items: 12dp vertical gap
+       Approval card padding: 20dp
+       Bottom bar: 16dp padding, 8dp between buttons
+     ================================================================ -->
+
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  xmlns:tools="http://schemas.android.com/tools"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="?attr/colorSurface"
+  android:fitsSystemWindows="true">
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <!-- ===== TOP STATUS BAR ===== -->
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="@dimen/top_bar_height"
+      android:orientation="horizontal"
+      android:gravity="center_vertical"
+      android:paddingHorizontal="@dimen/page_horizontal"
+      android:background="?attr/colorSurfaceContainerLow">
+
+      <!-- App icon being automated -->
+      <ImageView
+        android:id="@+id/targetAppIcon"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:contentDescription="Target app icon"
+        tools:src="@drawable/ic_resolve_logo" />
+
+      <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="@dimen/space_md">
+
+        <!-- "Working in Amazon..." -->
+        <TextView
+          android:id="@+id/statusText"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:textAppearance="?attr/textAppearanceTitleSmall"
+          android:textColor="?attr/colorOnSurface"
+          android:maxLines="1"
+          android:ellipsize="end"
+          tools:text="Working in Amazon..." />
+
+        <!-- Step counter -->
+        <TextView
+          android:id="@+id/stepCounterText"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_marginTop="2dp"
+          android:textAppearance="?attr/textAppearanceLabelSmall"
+          android:textColor="?attr/colorOnSurfaceVariant"
+          tools:text="Step 3 of ~8" />
+      </LinearLayout>
+
+      <!-- Pulsing status dot -->
+      <View
+        android:id="@+id/statusDot"
+        android:layout_width="@dimen/status_dot_size"
+        android:layout_height="@dimen/status_dot_size"
+        android:background="@drawable/bg_status_dot_success" />
+    </LinearLayout>
+
+    <!-- Linear progress indicator -->
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+      android:id="@+id/progressBar"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:indeterminate="true"
+      app:trackThickness="@dimen/progress_bar_height"
+      app:indicatorColor="?attr/colorPrimary"
+      app:trackColor="?attr/colorSurfaceContainerHigh" />
+
+    <!-- ===== ACTIVITY FEED ===== -->
+    <androidx.recyclerview.widget.RecyclerView
+      android:id="@+id/activityFeedRecycler"
+      android:layout_width="match_parent"
+      android:layout_height="0dp"
+      android:layout_weight="1"
+      android:paddingHorizontal="@dimen/page_horizontal"
+      android:paddingTop="@dimen/space_base"
+      android:paddingBottom="@dimen/space_base"
+      android:clipToPadding="false"
+      android:scrollbars="none" />
+
+    <!-- ===== BOTTOM CONTROLS ===== -->
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:background="?attr/colorSurfaceContainerLow"
+      android:paddingHorizontal="@dimen/page_horizontal"
+      android:paddingTop="@dimen/space_base"
+      android:paddingBottom="@dimen/space_lg">
+
+      <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <!-- Pause button -->
+        <com.google.android.material.button.MaterialButton
+          android:id="@+id/btnPause"
+          style="@style/Resolve.Button.Tonal"
+          android:layout_width="0dp"
+          android:layout_height="@dimen/button_height_secondary"
+          android:layout_weight="1"
+          android:text="@string/monitor_btn_pause" />
+
+        <View
+          android:layout_width="@dimen/element_gap"
+          android:layout_height="0dp" />
+
+        <!-- Stop button -->
+        <com.google.android.material.button.MaterialButton
+          android:id="@+id/btnStop"
+          style="@style/Resolve.Button.Outlined"
+          android:layout_width="0dp"
+          android:layout_height="@dimen/button_height_secondary"
+          android:layout_weight="1"
+          android:text="@string/monitor_btn_stop"
+          app:strokeColor="?attr/colorError"
+          android:textColor="?attr/colorError" />
+      </LinearLayout>
+    </LinearLayout>
+  </LinearLayout>
+
+  <!-- ===== APPROVAL OVERLAY CARD ===== -->
+  <!-- Shown over the feed when agent needs permission.
+       Semi-transparent scrim behind it. -->
+  <FrameLayout
+    android:id="@+id/approvalOverlay"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:visibility="gone"
+    tools:visibility="visible">
+
+    <!-- Scrim -->
+    <View
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:background="#80000000" />
+
+    <!-- Approval card -->
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_gravity="bottom"
+      android:layout_marginHorizontal="@dimen/space_base"
+      android:layout_marginBottom="@dimen/space_xl"
+      android:orientation="vertical"
+      android:background="@drawable/bg_approval_card"
+      android:padding="@dimen/card_padding">
+
+      <!-- Title -->
+      <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/approval_title"
+        android:textAppearance="?attr/textAppearanceTitleMedium"
+        android:textColor="?attr/colorOnSurface"
+        android:fontFamily="sans-serif-medium" />
+
+      <!-- Action description -->
+      <TextView
+        android:id="@+id/approvalDescription"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/element_gap"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:lineSpacingMultiplier="1.4"
+        tools:text="Agent wants to click 'Confirm Refund'. This will process a refund of $49.99 to your original payment method." />
+
+      <!-- Action buttons -->
+      <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/item_gap"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <com.google.android.material.button.MaterialButton
+          android:id="@+id/btnDeny"
+          style="@style/Resolve.Button.Text"
+          android:layout_width="wrap_content"
+          android:layout_height="44dp"
+          android:text="@string/approval_deny"
+          android:textColor="?attr/colorError" />
+
+        <com.google.android.material.button.MaterialButton
+          android:id="@+id/btnAllow"
+          style="@style/Resolve.Button.Primary"
+          android:layout_width="wrap_content"
+          android:layout_height="44dp"
+          android:layout_marginStart="@dimen/element_gap"
+          android:text="@string/approval_allow"
+          android:minWidth="100dp" />
+      </LinearLayout>
+    </LinearLayout>
+  </FrameLayout>
+
+</FrameLayout>

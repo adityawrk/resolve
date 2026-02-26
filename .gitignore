@@ -1,0 +1,28 @@
+node_modules
+.env
+dist
+playwright-report
+coverage
+.DS_Store
+conversations
+screenshots
+
+# Android
+android-companion/.gradle
+android-companion/.idea
+android-companion/.kotlin
+android-companion/local.properties
+android-companion/**/build
+android-companion/app/release
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# IDE
+.idea
+*.iml
+.vscode
+
+# Claude Code
+.claude

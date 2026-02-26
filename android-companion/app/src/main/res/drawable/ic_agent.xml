@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App launcher icon: Purple rounded square with stylized "R" -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  android:width="96dp"
+  android:height="96dp"
+  android:viewportWidth="96"
+  android:viewportHeight="96">
+
+  <!-- Background -->
+  <path
+    android:fillColor="#6C5CE7"
+    android:pathData="M0,24C0,10.75 10.75,0 24,0L72,0C85.25,0 96,10.75 96,24L96,72C96,85.25 85.25,96 72,96L24,96C10.75,96 0,85.25 0,72Z" />
+
+  <!-- Stylized "R" vertical stroke -->
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M28,20L38,20L38,76L28,76Z" />
+
+  <!-- "R" head curve -->
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M38,20L56,20C64,20 70,26 70,34C70,42 64,48 56,48L38,48Z" />
+
+  <!-- "R" leg -->
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M50,48L68,76L56,76L38,48Z" />
+
+  <!-- AI accent dot -->
+  <path
+    android:fillColor="#A855F7"
+    android:pathData="M58,34m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0" />
+</vector>

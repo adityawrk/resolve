@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Previous case card in the main screen's history list.
+     Shows: app name, issue title, outcome status, timestamp.
+     Card: 28dp radius, surfaceContainerHigh fill, no elevation.
+     Internal padding: 16dp.
+     Min height: 72dp to ensure comfortable touch target. -->
+
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  xmlns:tools="http://schemas.android.com/tools"
+  style="@style/Resolve.Card"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:layout_marginBottom="@dimen/element_gap"
+  app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+  android:clickable="true"
+  android:focusable="true"
+  app:rippleColor="?attr/colorPrimary">
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="@dimen/card_padding_compact"
+    android:minHeight="72dp">
+
+    <!-- Top row: app name + status dot -->
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="horizontal"
+      android:gravity="center_vertical">
+
+      <!-- App name chip-like label -->
+      <TextView
+        android:id="@+id/caseAppName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textAppearance="?attr/textAppearanceLabelMedium"
+        android:textColor="?attr/colorPrimary"
+        tools:text="Amazon" />
+
+      <!-- Status dot + label -->
+      <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <View
+          android:id="@+id/caseStatusDot"
+          android:layout_width="6dp"
+          android:layout_height="6dp"
+          android:background="@drawable/bg_status_dot_success" />
+
+        <TextView
+          android:id="@+id/caseStatusText"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_marginStart="6dp"
+          android:textAppearance="?attr/textAppearanceLabelSmall"
+          android:textColor="@color/status_success"
+          tools:text="Resolved" />
+      </LinearLayout>
+    </LinearLayout>
+
+    <!-- Issue title -->
+    <TextView
+      android:id="@+id/caseTitle"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="@dimen/space_xs"
+      android:textAppearance="?attr/textAppearanceTitleSmall"
+      android:textColor="?attr/colorOnSurface"
+      android:maxLines="2"
+      android:ellipsize="end"
+      tools:text="Damaged package - need full refund" />
+
+    <!-- Timestamp -->
+    <TextView
+      android:id="@+id/caseTimestamp"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="@dimen/space_xs"
+      android:textAppearance="?attr/textAppearanceLabelSmall"
+      android:textColor="?attr/colorOnSurfaceVariant"
+      android:alpha="0.6"
+      tools:text="Today, 2:34 PM" />
+  </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

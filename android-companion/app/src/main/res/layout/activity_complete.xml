@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ================================================================
+     Screen 5: Case Complete
+     - Success card at top (green-tinted surface, check icon, summary)
+     - Resolution details (app, outcome, time taken)
+     - Expandable conversation transcript
+     - "New Issue" CTA at bottom
+
+     Typography:
+       Success title: headlineSmall (24sp, medium)
+       Summary:       bodyMedium (14sp), onSurface
+       Detail label:  labelMedium (12sp, medium), onSurfaceVariant
+       Detail value:  bodyMedium (14sp), onSurface
+       Transcript:    bodySmall (12sp), monospace
+       CTA button:    via Resolve.Button.Primary style (16sp)
+
+     Spacing:
+       Page padding: 24dp horizontal
+       Success card padding: 24dp
+       Icon to title: 16dp
+       Title to summary: 8dp
+       Card to details: 24dp
+       Detail rows: 16dp apart
+       Transcript section: 24dp margin-top
+       CTA bottom: 24dp
+     ================================================================ -->
+
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  xmlns:tools="http://schemas.android.com/tools"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="?attr/colorSurface"
+  android:fitsSystemWindows="true">
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <!-- Scrollable content -->
+    <androidx.core.widget.NestedScrollView
+      android:layout_width="match_parent"
+      android:layout_height="0dp"
+      android:layout_weight="1"
+      android:fillViewport="true">
+
+      <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="@dimen/page_horizontal"
+        android:paddingTop="@dimen/space_xl"
+        android:paddingBottom="@dimen/space_lg">
+
+        <!-- ===== SUCCESS CARD ===== -->
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="vertical"
+          android:background="@drawable/bg_success_card"
+          android:padding="@dimen/space_lg"
+          android:gravity="center_horizontal">
+
+          <!-- Check icon -->
+          <ImageView
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:src="@drawable/ic_check_circle"
+            android:contentDescription="Success" />
+
+          <!-- Title -->
+          <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_base"
+            android:text="@string/complete_title"
+            android:textAppearance="?attr/textAppearanceHeadlineSmall"
+            android:textColor="@color/status_success_on_container"
+            android:fontFamily="sans-serif-medium" />
+
+          <!-- Resolution summary -->
+          <TextView
+            android:id="@+id/resolutionSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/element_gap"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="@color/status_success_on_container"
+            android:textAlignment="center"
+            android:lineSpacingMultiplier="1.4"
+            android:alpha="0.85"
+            tools:text="Refund of $49.99 approved. Expected in 3-5 business days to your original payment method." />
+        </LinearLayout>
+
+        <!-- ===== RESOLUTION DETAILS ===== -->
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:layout_marginTop="@dimen/section_gap"
+          android:orientation="vertical">
+
+          <!-- Detail row: App -->
+          <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+              android:layout_width="0dp"
+              android:layout_height="wrap_content"
+              android:layout_weight="1"
+              android:text="App"
+              android:textAppearance="?attr/textAppearanceLabelMedium"
+              android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <TextView
+              android:id="@+id/detailApp"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:textAppearance="?attr/textAppearanceBodyMedium"
+              android:textColor="?attr/colorOnSurface"
+              tools:text="Amazon" />
+          </LinearLayout>
+
+          <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="@dimen/space_md"
+            android:background="?attr/colorOutlineVariant"
+            android:alpha="0.2" />
+
+          <!-- Detail row: Outcome -->
+          <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+              android:layout_width="0dp"
+              android:layout_height="wrap_content"
+              android:layout_weight="1"
+              android:text="Outcome"
+              android:textAppearance="?attr/textAppearanceLabelMedium"
+              android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <TextView
+              android:id="@+id/detailOutcome"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:textAppearance="?attr/textAppearanceBodyMedium"
+              android:textColor="@color/status_success"
+              tools:text="Refund approved" />
+          </LinearLayout>
+
+          <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="@dimen/space_md"
+            android:background="?attr/colorOutlineVariant"
+            android:alpha="0.2" />
+
+          <!-- Detail row: Time taken -->
+          <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+              android:layout_width="0dp"
+              android:layout_height="wrap_content"
+              android:layout_weight="1"
+              android:text="Time taken"
+              android:textAppearance="?attr/textAppearanceLabelMedium"
+              android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <TextView
+              android:id="@+id/detailTimeTaken"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:textAppearance="?attr/textAppearanceBodyMedium"
+              android:textColor="?attr/colorOnSurface"
+              tools:text="2 min 34 sec" />
+          </LinearLayout>
+
+          <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="@dimen/space_md"
+            android:background="?attr/colorOutlineVariant"
+            android:alpha="0.2" />
+
+          <!-- Detail row: Steps -->
+          <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+              android:layout_width="0dp"
+              android:layout_height="wrap_content"
+              android:layout_weight="1"
+              android:text="Steps taken"
+              android:textAppearance="?attr/textAppearanceLabelMedium"
+              android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <TextView
+              android:id="@+id/detailSteps"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:textAppearance="?attr/textAppearanceBodyMedium"
+              android:textColor="?attr/colorOnSurface"
+              tools:text="12" />
+          </LinearLayout>
+        </LinearLayout>
+
+        <!-- ===== CONVERSATION TRANSCRIPT (expandable) ===== -->
+        <com.google.android.material.card.MaterialCardView
+          android:id="@+id/transcriptCard"
+          style="@style/Resolve.Card.Outlined"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:layout_marginTop="@dimen/section_gap"
+          app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+          app:strokeColor="?attr/colorOutlineVariant">
+
+          <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Expandable header -->
+            <LinearLayout
+              android:id="@+id/transcriptHeader"
+              android:layout_width="match_parent"
+              android:layout_height="56dp"
+              android:orientation="horizontal"
+              android:gravity="center_vertical"
+              android:paddingHorizontal="@dimen/card_padding"
+              android:clickable="true"
+              android:focusable="true"
+              android:background="?attr/selectableItemBackground">
+
+              <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/complete_view_transcript"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="?attr/colorOnSurface" />
+
+              <ImageView
+                android:id="@+id/transcriptExpandIcon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_expand_more"
+                android:contentDescription="Expand" />
+            </LinearLayout>
+
+            <!-- Transcript content (initially collapsed) -->
+            <TextView
+              android:id="@+id/transcriptText"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:paddingHorizontal="@dimen/card_padding"
+              android:paddingBottom="@dimen/card_padding"
+              android:textAppearance="?attr/textAppearanceBodySmall"
+              android:textColor="?attr/colorOnSurfaceVariant"
+              android:fontFamily="monospace"
+              android:lineSpacingMultiplier="1.5"
+              android:visibility="gone"
+              tools:text="[12:01] Resolve: Hi, I ordered product #12345...\n[12:01] Support: Let me look into that...\n[12:02] Resolve: Here is a photo of the damage...\n[12:03] Support: I can see the damage. I will process a refund..." />
+          </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+      </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    <!-- ===== BOTTOM CTA ===== -->
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:paddingHorizontal="@dimen/page_horizontal"
+      android:paddingTop="@dimen/space_base"
+      android:paddingBottom="@dimen/space_lg"
+      android:background="?attr/colorSurface">
+
+      <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnNewIssue"
+        style="@style/Resolve.Button.Primary"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/button_height_primary"
+        android:text="@string/complete_new_issue" />
+    </LinearLayout>
+
+  </LinearLayout>
+</FrameLayout>

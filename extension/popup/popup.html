@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Resolve</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header id="header">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        <path d="M8 10h8M8 14h4"/>
+      </svg>
+      <span class="brand-name">Resolve</span>
+    </div>
+    <div id="connectionDot" class="dot dot-disconnected" title="Disconnected"></div>
+  </header>
+
+  <!-- Widget detection banner -->
+  <div id="widgetBanner" class="banner banner-scanning">
+    <span id="widgetStatus">Scanning page for chat widget...</span>
+  </div>
+
+  <!-- State: IDLE - issue form -->
+  <section id="formSection" class="section">
+    <div class="field">
+      <label for="issueInput">What's your issue?</label>
+      <textarea id="issueInput" rows="3" placeholder="e.g. My order #12345 arrived damaged. I want a full refund."></textarea>
+    </div>
+
+    <div class="field">
+      <label for="desiredOutcome">Desired outcome</label>
+      <select id="desiredOutcome">
+        <option value="refund">Refund</option>
+        <option value="replacement">Replacement</option>
+        <option value="information">Get information</option>
+        <option value="cancellation">Cancellation</option>
+        <option value="other">Other (agent decides)</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Evidence (optional)</label>
+      <div id="fileZone" class="file-zone">
+        <input type="file" id="fileInput" multiple accept="image/*,.pdf,.txt" />
+        <span class="file-zone-text">Drop files or click to attach</span>
+      </div>
+      <div id="fileList" class="file-list"></div>
+    </div>
+
+    <button id="startBtn" class="btn btn-primary" disabled>
+      Resolve It
+    </button>
+  </section>
+
+  <!-- State: ACTIVE - agent running -->
+  <section id="activeSection" class="section hidden">
+    <div class="status-bar">
+      <div class="pulse"></div>
+      <span id="agentStatus">Agent is working...</span>
+    </div>
+
+    <div id="activityFeed" class="activity-feed"></div>
+
+    <div class="controls">
+      <button id="pauseBtn" class="btn btn-secondary">Pause</button>
+      <button id="stopBtn" class="btn btn-danger">Stop</button>
+    </div>
+  </section>
+
+  <!-- State: PAUSED - needs user input -->
+  <section id="pausedSection" class="section hidden">
+    <div class="pause-card">
+      <div class="pause-icon">!</div>
+      <p id="pauseReason">The agent needs your input</p>
+      <div id="pausePrompt"></div>
+    </div>
+    <div class="field" id="humanResponseField" style="display:none">
+      <textarea id="humanResponse" rows="2" placeholder="Your response..."></textarea>
+    </div>
+    <div class="controls">
+      <button id="approveBtn" class="btn btn-primary">Continue</button>
+      <button id="stopPausedBtn" class="btn btn-danger">Stop</button>
+    </div>
+  </section>
+
+  <!-- State: COMPLETED -->
+  <section id="completedSection" class="section hidden">
+    <div class="result-card result-success">
+      <div class="result-icon">&#10003;</div>
+      <h3>Resolved</h3>
+      <p id="resolutionSummary"></p>
+    </div>
+    <div id="completedFeed" class="activity-feed"></div>
+    <button id="newCaseBtn" class="btn btn-primary">New Issue</button>
+  </section>
+
+  <!-- State: ERROR -->
+  <section id="errorSection" class="section hidden">
+    <div class="result-card result-error">
+      <div class="result-icon">&#10007;</div>
+      <h3>Something went wrong</h3>
+      <p id="errorMessage"></p>
+    </div>
+    <button id="retryBtn" class="btn btn-primary">Try Again</button>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

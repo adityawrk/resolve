@@ -1,0 +1,391 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ================================================================
+     Screen 6: Settings
+     - Top bar with back arrow + "Settings" title
+     - Sections:
+       1. LLM Provider (card with current provider, switch option,
+          custom API key fields)
+       2. Accessibility Service status
+       3. Auto-approve toggle
+       4. Case History (navigates to list)
+       5. About / Version
+
+     Typography:
+       Screen title:  titleLarge (22sp, medium)
+       Section head:  titleSmall (14sp, medium)
+       Setting label: bodyLarge (16sp)
+       Setting desc:  bodySmall (12sp), onSurfaceVariant
+       Input fields:  bodyLarge (16sp) via Material TextInput
+       Version:       labelMedium (12sp), onSurfaceVariant
+
+     Spacing:
+       Page padding: 24dp horizontal
+       Top bar: 64dp
+       Section gap: 32dp
+       Items within section: 16dp
+       Card padding: 20dp
+     ================================================================ -->
+
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  xmlns:tools="http://schemas.android.com/tools"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:orientation="vertical"
+  android:background="?attr/colorSurface"
+  android:fitsSystemWindows="true">
+
+  <!-- ===== TOP BAR ===== -->
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/top_bar_height"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="@dimen/space_sm"
+    android:paddingEnd="@dimen/page_horizontal">
+
+    <com.google.android.material.button.MaterialButton
+      android:id="@+id/btnBack"
+      style="?attr/materialIconButtonStyle"
+      android:layout_width="48dp"
+      android:layout_height="48dp"
+      app:icon="@drawable/ic_arrow_back"
+      app:iconSize="24dp"
+      android:contentDescription="Back" />
+
+    <TextView
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginStart="@dimen/space_sm"
+      android:text="@string/settings_title"
+      android:textAppearance="?attr/textAppearanceTitleLarge"
+      android:textColor="?attr/colorOnSurface"
+      android:fontFamily="sans-serif-medium" />
+  </LinearLayout>
+
+  <!-- ===== SCROLLABLE SETTINGS ===== -->
+  <ScrollView
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_weight="1"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:paddingHorizontal="@dimen/page_horizontal"
+      android:paddingBottom="@dimen/space_2xl">
+
+      <!-- ===== SECTION 1: LLM Provider ===== -->
+      <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_base"
+        android:text="@string/settings_llm_provider"
+        android:textAppearance="?attr/textAppearanceTitleSmall"
+        android:textColor="?attr/colorPrimary" />
+
+      <com.google.android.material.card.MaterialCardView
+        style="@style/Resolve.Card.Outlined"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/element_gap"
+        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+        app:strokeColor="?attr/colorOutlineVariant">
+
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="vertical"
+          android:padding="@dimen/card_padding">
+
+          <!-- Current provider display -->
+          <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_current_provider"
+            android:textAppearance="?attr/textAppearanceLabelMedium"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+
+          <TextView
+            android:id="@+id/currentProviderText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_xs"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:textColor="?attr/colorOnSurface"
+            tools:text="ChatGPT (OAuth)" />
+
+          <!-- Switch auth method -->
+          <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSwitchAuth"
+            style="@style/Resolve.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginTop="@dimen/element_gap"
+            android:text="@string/settings_switch_auth"
+            android:textColor="?attr/colorPrimary" />
+
+          <!-- Custom API key fields (hidden when using OAuth) -->
+          <LinearLayout
+            android:id="@+id/apiKeySection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="@dimen/item_gap"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <!-- Provider dropdown -->
+            <com.google.android.material.textfield.TextInputLayout
+              android:id="@+id/providerDropdownLayout"
+              style="@style/Resolve.TextInput"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:hint="@string/settings_api_provider"
+              app:endIconMode="dropdown_menu">
+
+              <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/providerDropdown"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none"
+                android:textSize="16sp"
+                tools:text="Azure OpenAI" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Endpoint -->
+            <com.google.android.material.textfield.TextInputLayout
+              style="@style/Resolve.TextInput"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_marginTop="@dimen/item_gap"
+              android:hint="@string/settings_api_endpoint">
+
+              <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/apiEndpointInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textUri"
+                android:maxLines="1"
+                android:textSize="16sp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- API Key -->
+            <com.google.android.material.textfield.TextInputLayout
+              style="@style/Resolve.TextInput"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_marginTop="@dimen/item_gap"
+              android:hint="@string/settings_api_key"
+              app:endIconMode="password_toggle">
+
+              <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/apiKeyInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPassword|textNoSuggestions"
+                android:maxLines="1"
+                android:textSize="16sp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Model -->
+            <com.google.android.material.textfield.TextInputLayout
+              style="@style/Resolve.TextInput"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_marginTop="@dimen/item_gap"
+              android:hint="@string/settings_api_model">
+
+              <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/apiModelInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textNoSuggestions"
+                android:maxLines="1"
+                android:textSize="16sp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Save button -->
+            <com.google.android.material.button.MaterialButton
+              android:id="@+id/btnSaveApiConfig"
+              style="@style/Resolve.Button.Tonal"
+              android:layout_width="wrap_content"
+              android:layout_height="@dimen/button_height_secondary"
+              android:layout_marginTop="@dimen/item_gap"
+              android:text="@string/settings_save" />
+          </LinearLayout>
+        </LinearLayout>
+      </com.google.android.material.card.MaterialCardView>
+
+      <!-- ===== SECTION 2: Accessibility Service ===== -->
+      <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_xl"
+        android:text="@string/settings_accessibility_status"
+        android:textAppearance="?attr/textAppearanceTitleSmall"
+        android:textColor="?attr/colorPrimary" />
+
+      <!-- Accessibility row -->
+      <LinearLayout
+        android:id="@+id/accessibilityRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/element_gap"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:minHeight="56dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground"
+        android:paddingVertical="@dimen/space_sm">
+
+        <View
+          android:id="@+id/accessibilityStatusDot"
+          android:layout_width="@dimen/status_dot_size"
+          android:layout_height="@dimen/status_dot_size"
+          android:background="@drawable/bg_status_dot_error" />
+
+        <LinearLayout
+          android:layout_width="0dp"
+          android:layout_height="wrap_content"
+          android:layout_weight="1"
+          android:layout_marginStart="@dimen/space_base"
+          android:orientation="vertical">
+
+          <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_accessibility_status"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:textColor="?attr/colorOnSurface" />
+
+          <TextView
+            android:id="@+id/accessibilityStatusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            tools:text="Not enabled" />
+        </LinearLayout>
+      </LinearLayout>
+
+      <!-- ===== SECTION 3: Auto-approve ===== -->
+      <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="@dimen/space_base"
+        android:background="?attr/colorOutlineVariant"
+        android:alpha="0.2" />
+
+      <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:minHeight="56dp"
+        android:paddingVertical="@dimen/space_sm">
+
+        <LinearLayout
+          android:layout_width="0dp"
+          android:layout_height="wrap_content"
+          android:layout_weight="1"
+          android:orientation="vertical"
+          android:layout_marginEnd="@dimen/space_base">
+
+          <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_auto_approve"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:textColor="?attr/colorOnSurface" />
+
+          <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="@string/settings_auto_approve_desc"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:lineSpacingMultiplier="1.4" />
+        </LinearLayout>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+          android:id="@+id/autoApproveSwitch"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content" />
+      </LinearLayout>
+
+      <!-- ===== SECTION 4: Case History ===== -->
+      <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="@dimen/space_base"
+        android:background="?attr/colorOutlineVariant"
+        android:alpha="0.2" />
+
+      <LinearLayout
+        android:id="@+id/caseHistoryRow"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground">
+
+        <TextView
+          android:layout_width="0dp"
+          android:layout_height="wrap_content"
+          android:layout_weight="1"
+          android:text="@string/settings_case_history"
+          android:textAppearance="?attr/textAppearanceBodyLarge"
+          android:textColor="?attr/colorOnSurface" />
+
+        <ImageView
+          android:layout_width="24dp"
+          android:layout_height="24dp"
+          android:src="@drawable/ic_expand_more"
+          android:rotation="-90"
+          android:contentDescription="Navigate"
+          android:alpha="0.5" />
+      </LinearLayout>
+
+      <!-- ===== SECTION 5: About ===== -->
+      <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="@dimen/space_base"
+        android:background="?attr/colorOutlineVariant"
+        android:alpha="0.2" />
+
+      <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+          android:layout_width="0dp"
+          android:layout_height="wrap_content"
+          android:layout_weight="1"
+          android:text="@string/settings_about"
+          android:textAppearance="?attr/textAppearanceBodyLarge"
+          android:textColor="?attr/colorOnSurface" />
+
+        <TextView
+          android:id="@+id/versionText"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:textAppearance="?attr/textAppearanceLabelMedium"
+          android:textColor="?attr/colorOnSurfaceVariant"
+          tools:text="Version 0.1.0" />
+      </LinearLayout>
+
+    </LinearLayout>
+  </ScrollView>
+</LinearLayout>

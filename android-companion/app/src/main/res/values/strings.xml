@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Resolve</string>
+  <string name="agent_notification_channel">Resolve Agent</string>
+  <string name="agent_notification_text">Polling for support commands</string>
+  <string name="support_accessibility_description">Resolve accessibility bridge for guided support automation</string>
+
+  <!-- Welcome / Auth -->
+  <string name="welcome_tagline">AI handles your support chats</string>
+  <string name="welcome_subtitle">Describe your issue once. Resolve navigates support apps, talks to agents, and gets your problem fixed.</string>
+  <string name="sign_in_chatgpt">Sign in with ChatGPT</string>
+  <string name="use_api_key">Use your own API key</string>
+  <string name="auth_divider">or</string>
+
+  <!-- Onboarding -->
+  <string name="onboarding_title">A few things before we start</string>
+  <string name="onboarding_subtitle">Resolve needs these permissions to work on your behalf.</string>
+  <string name="permission_accessibility_title">Accessibility Service</string>
+  <string name="permission_accessibility_desc">Required. Allows Resolve to navigate other apps, tap buttons, and type messages in support chats.</string>
+  <string name="permission_accessibility_required">Required</string>
+  <string name="permission_notifications_title">Notifications</string>
+  <string name="permission_notifications_desc">Stay updated when the agent finishes a case or needs your approval.</string>
+  <string name="permission_enable">Enable</string>
+  <string name="permission_granted">Granted</string>
+  <string name="onboarding_continue">Continue</string>
+
+  <!-- Main / Issue Submission -->
+  <string name="greeting_default">What do you need resolved?</string>
+  <string name="model_chip_label">GPT-5 Nano</string>
+  <string name="label_app">App</string>
+  <string name="label_issue_title">Issue title</string>
+  <string name="label_description">Describe the issue</string>
+  <string name="label_order_id">Order / Reference ID (optional)</string>
+  <string name="label_attachments">Attachments</string>
+  <string name="label_desired_outcome">Desired outcome</string>
+  <string name="btn_add_photo">Add photo</string>
+  <string name="btn_add_file">Add file</string>
+  <string name="btn_resolve_it">Resolve It</string>
+  <string name="section_previous_cases">Previous cases</string>
+  <string name="no_previous_cases">No previous cases yet</string>
+
+  <!-- App selector chips -->
+  <string name="app_amazon">Amazon</string>
+  <string name="app_swiggy">Swiggy</string>
+  <string name="app_uber">Uber</string>
+  <string name="app_whatsapp">WhatsApp</string>
+  <string name="app_other">Other</string>
+
+  <!-- Outcome chips -->
+  <string name="outcome_refund">Refund</string>
+  <string name="outcome_replacement">Replacement</string>
+  <string name="outcome_info">Information</string>
+  <string name="outcome_cancellation">Cancellation</string>
+  <string name="outcome_other">Other</string>
+
+  <!-- Agent Monitor -->
+  <string name="monitor_status_working">Working in %s...</string>
+  <string name="monitor_status_waiting">Waiting for response...</string>
+  <string name="monitor_status_paused">Paused - needs your input</string>
+  <string name="monitor_step_progress">Step %1$d of ~%2$d</string>
+  <string name="monitor_btn_pause">Pause</string>
+  <string name="monitor_btn_stop">Stop</string>
+  <string name="approval_title">Agent needs your approval</string>
+  <string name="approval_allow">Allow</string>
+  <string name="approval_deny">Deny</string>
+
+  <!-- Case Complete -->
+  <string name="complete_title">Issue Resolved</string>
+  <string name="complete_view_transcript">View full conversation</string>
+  <string name="complete_new_issue">New Issue</string>
+
+  <!-- Settings -->
+  <string name="settings_title">Settings</string>
+  <string name="settings_llm_provider">LLM Provider</string>
+  <string name="settings_current_provider">Current provider</string>
+  <string name="settings_switch_auth">Switch authentication</string>
+  <string name="settings_api_provider">Provider</string>
+  <string name="settings_api_endpoint">API Endpoint</string>
+  <string name="settings_api_key">API Key</string>
+  <string name="settings_api_model">Model</string>
+  <string name="settings_accessibility_status">Accessibility Service</string>
+  <string name="settings_auto_approve">Auto-approve safe actions</string>
+  <string name="settings_auto_approve_desc">Skip approval for non-financial actions like navigating menus or typing messages</string>
+  <string name="settings_case_history">Case History</string>
+  <string name="settings_about">About</string>
+  <string name="settings_version">Version %s</string>
+  <string name="settings_save">Save</string>
+</resources>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+  <application
+    android:allowBackup="true"
+    android:icon="@drawable/ic_agent"
+    android:label="@string/app_name"
+    android:usesCleartextTraffic="true"
+    android:roundIcon="@drawable/ic_agent"
+    android:supportsRtl="true"
+    android:theme="@style/Theme.Resolve.Dark">
+
+    <!-- Welcome / Auth screen (launcher) -->
+    <activity
+      android:name=".WelcomeActivity"
+      android:exported="true"
+      android:theme="@style/Theme.Resolve.Dark">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+
+    <!-- Onboarding / Permissions -->
+    <activity
+      android:name=".OnboardingActivity"
+      android:theme="@style/Theme.Resolve.Dark" />
+
+    <!-- Main screen (issue submission) -->
+    <activity
+      android:name=".MainActivity"
+      android:theme="@style/Theme.Resolve.Dark"
+      android:windowSoftInputMode="adjustResize" />
+
+    <!-- Agent live monitor -->
+    <activity
+      android:name=".MonitorActivity"
+      android:theme="@style/Theme.Resolve.Dark" />
+
+    <!-- Case complete -->
+    <activity
+      android:name=".CompleteActivity"
+      android:theme="@style/Theme.Resolve.Dark" />
+
+    <!-- Settings -->
+    <activity
+      android:name=".SettingsActivity"
+      android:theme="@style/Theme.Resolve.Dark" />
+
+    <!-- Background agent service -->
+    <service
+      android:name=".CompanionAgentService"
+      android:enabled="true"
+      android:exported="false"
+      android:foregroundServiceType="dataSync" />
+
+    <!-- Accessibility bridge -->
+    <service
+      android:name=".SupportAccessibilityService"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+      </intent-filter>
+      <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/support_accessibility_service" />
+    </service>
+
+  </application>
+
+</manifest>
