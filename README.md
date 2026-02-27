@@ -144,12 +144,12 @@ Full research notes: [`AGENT_RESEARCH.md`](android-companion/AGENT_RESEARCH.md),
 ### Install
 
 **Option A — Download APK:**
-Download the latest build from [Releases](https://github.com/adityaeternal/resolve/releases).
+Download the latest build from [Releases](https://github.com/adityawrk/resolve/releases).
 
 **Option B — Build from source:**
 
 ```bash
-git clone https://github.com/adityaeternal/resolve.git
+git clone https://github.com/adityawrk/resolve.git
 cd resolve/android-companion
 ./gradlew assembleDebug
 # Install: adb install app/build/outputs/apk/debug/app-debug.apk
@@ -222,7 +222,7 @@ Unit tests for `SafetyPolicy`, `AgentLoop` logic, and `LLMClient` parsing are va
 ### Development setup
 
 ```bash
-git clone https://github.com/adityaeternal/resolve.git
+git clone https://github.com/adityawrk/resolve.git
 cd resolve/android-companion
 ./gradlew assembleDebug
 ```
