@@ -1,0 +1,48 @@
+name: App Profile Request
+description: Request or contribute a navigation profile for a new app
+labels: ["app-profile"]
+body:
+  - type: input
+    id: app-name
+    attributes:
+      label: App name
+      placeholder: "e.g., DoorDash, Lyft, PhonePe"
+    validations:
+      required: true
+
+  - type: input
+    id: app-category
+    attributes:
+      label: Category
+      placeholder: "e.g., Food delivery, Ride-hailing, E-commerce"
+    validations:
+      required: true
+
+  - type: input
+    id: app-region
+    attributes:
+      label: Region
+      placeholder: "e.g., Global, US, India, EU"
+    validations:
+      required: true
+
+  - type: textarea
+    id: support-path
+    attributes:
+      label: Path to support chat
+      description: Describe the steps to reach the support/help chat in this app.
+      placeholder: |
+        1. Open app → tap "Account" (bottom bar)
+        2. Scroll down → tap "Help"
+        3. Tap "Chat with us" or select an order first
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: pitfalls
+    attributes:
+      label: Common wrong turns
+      description: Any UI elements that look like support paths but aren't (e.g., wallet buttons, promo banners).
+    validations:
+      required: false

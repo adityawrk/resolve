@@ -1,0 +1,73 @@
+name: Bug Report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: "The agent clicked on the wrong element after navigating to the support page..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Open the app, enter issue for Dominos
+        2. Tap "Resolve It"
+        3. Agent navigates to Orders page
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: input
+    id: app
+    attributes:
+      label: Target app
+      description: Which app were you trying to get support from?
+      placeholder: "Dominos, Amazon, Swiggy, etc."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: llm-provider
+    attributes:
+      label: LLM provider
+      options:
+        - OpenAI (ChatGPT OAuth)
+        - OpenAI (API key)
+        - Anthropic
+        - Google Gemini
+        - DeepSeek
+        - Custom endpoint
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device & Android version
+      placeholder: "Samsung Galaxy S24, Android 15"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Agent log (if available)
+      description: Copy the activity feed from the Monitor screen if possible.
+      render: shell
+    validations:
+      required: false
