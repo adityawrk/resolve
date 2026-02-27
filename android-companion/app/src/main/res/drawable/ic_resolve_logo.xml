@@ -1,34 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Resolve app logo: abstract "R" formed by geometric shapes
-     Purple gradient reflecting the brand seed color -->
+<!-- Resolve in-app logo: Purple gradient background with white R mark.
+     Used on welcome screen and monitor screen header.
+     80x80dp display size with 20dp corner radius background. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-  android:width="80dp"
-  android:height="80dp"
-  android:viewportWidth="80"
-  android:viewportHeight="80">
+    android:width="80dp"
+    android:height="80dp"
+    android:viewportWidth="80"
+    android:viewportHeight="80">
 
-  <!-- Background rounded square -->
-  <path
-    android:fillColor="#6C5CE7"
-    android:pathData="M0,20C0,8.95 8.95,0 20,0L60,0C71.05,0 80,8.95 80,20L80,60C80,71.05 71.05,80 60,80L20,80C8.95,80 0,71.05 0,60Z" />
+    <!-- Background rounded square with gradient effect
+         (vector drawables can't do gradients, so using mid-tone purple) -->
+    <path
+        android:fillColor="#5B2FCC"
+        android:pathData="M0,20 C0,8.95 8.95,0 20,0 L60,0 C71.05,0 80,8.95 80,20 L80,60 C80,71.05 71.05,80 60,80 L20,80 C8.95,80 0,71.05 0,60 Z" />
 
-  <!-- Stylized "R" letterform - vertical stroke -->
-  <path
-    android:fillColor="#FFFFFF"
-    android:pathData="M24,18L32,18L32,62L24,62Z" />
+    <!-- Subtle lighter overlay for top-right area (faux gradient) -->
+    <path
+        android:fillColor="#7C3AED"
+        android:fillAlpha="0.4"
+        android:pathData="M40,0 L60,0 C71.05,0 80,8.95 80,20 L80,60 C80,71.05 71.05,80 60,80 L40,40 Z" />
 
-  <!-- "R" head curve -->
-  <path
-    android:fillColor="#FFFFFF"
-    android:pathData="M32,18L48,18C54.63,18 60,23.37 60,30C60,36.63 54.63,42 48,42L32,42Z" />
+    <!-- R mark — white, bold geometric -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+            M16,20.7
+            C16,19 17.3,17.6 19,17.6
+            C20.7,17.6 22,19 22,20.7
+            L22,59.3
+            C22,61 20.7,62.4 19,62.4
+            C17.3,62.4 16,61 16,59.3
+            Z
 
-  <!-- "R" leg / diagonal kick -->
-  <path
-    android:fillColor="#FFFFFF"
-    android:pathData="M42,42L56,62L46,62L32,42Z" />
+            M22,17.6
+            L31.6,17.6
+            C36.2,17.6 40,22.5 40,28.7
+            C40,34.9 36.2,39.8 31.6,39.8
+            L22,39.8
+            Z
 
-  <!-- Accent dot (lighter purple to suggest AI/intelligence) -->
-  <path
-    android:fillColor="#A855F7"
-    android:pathData="M50,30m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
+            M22,22.7
+            L22,34.7
+            L29.2,34.7
+            C31.6,34.7 33.6,32 33.6,28.7
+            C33.6,25.4 31.6,22.7 29.2,22.7
+            Z
+
+            M23.5,39.8
+            L31,39.8
+            L46.5,62.4
+            L39,62.4
+            Z" />
 </vector>

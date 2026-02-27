@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Resolve adaptive icon foreground: Bold geometric R mark.
+     108x108 viewport (Android adaptive icon standard).
+     The mark sits within the 66dp safe zone centered at (54,54).
+     Uses nonZero fill with counterclockwise inner path for bowl cutout. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+            M34,33
+            C34,30.24 36.24,28 39,28
+            C41.76,28 44,30.24 44,33
+            L44,75
+            C44,77.76 41.76,80 39,80
+            C36.24,80 34,77.76 34,75
+            Z
+
+            M44,28
+            L57,28
+            C64.2,28 70,34.7 70,43
+            C70,51.3 64.2,58 57,58
+            L44,58
+            Z
+
+            M44,35
+            L44,51
+            L52,51
+            C56.4,51 60,47.4 60,43
+            C60,38.6 56.4,35 52,35
+            Z
+
+            M46,58
+            L56,58
+            L73,80
+            L63,80
+            Z" />
+</vector>

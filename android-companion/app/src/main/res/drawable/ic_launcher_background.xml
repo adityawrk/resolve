@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Resolve adaptive icon background: Deep-to-vibrant purple gradient.
+     Creates a rich, premium feel inspired by Ultrahuman/Apple icon aesthetics. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:type="linear"
+        android:startColor="#3A1694"
+        android:endColor="#7C3AED"
+        android:angle="315" />
+</shape>
