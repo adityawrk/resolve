@@ -65,19 +65,22 @@ object AppNavigationKnowledge {
         "in.swiggy.android" to AppNavProfile(
             appName = "Swiggy",
             supportPath = listOf(
-                "Tap the profile icon at the TOP-RIGHT corner of the home screen",
-                "Tap \"Help\" or \"Support\" in the profile menu",
+                "Tap \"ACCOUNT\" in the BOTTOM navigation bar (rightmost tab)",
+                "Tap \"My Orders\" or \"Your Orders\" in the account menu",
                 "Select the specific order with the issue",
+                "Tap \"Help\" on the order details page",
                 "Choose the relevant issue category",
                 "Tap \"Chat with Us\" for live chat support",
             ),
             pitfalls = listOf(
-                "Bottom bar tabs (Food, Instamart, Dineout, Genie) are SERVICE tabs — not Account",
-                "Profile is a small icon at TOP-RIGHT, not in the bottom bar",
-                "\"History\" bottom tab shows order history but NOT support — go to Profile → Help instead",
+                "Bottom bar has SWIGGY, SEARCH, CART, ACCOUNT — tap ACCOUNT (rightmost)",
+                "Profile/Account is NOT at the top-right — it is the ACCOUNT tab in the BOTTOM bar",
+                "If the app shows a LOGIN screen, the user is not logged in — call request_human_review immediately",
+                "Do NOT click \"Send Feedback\" — it opens app feedback, not customer support",
+                "\"SWIGGY\" tab (leftmost in bottom bar) shows the food home page — not support",
             ),
-            profileLocation = "Top-right corner: small profile/person icon",
-            orderHistoryLocation = "Profile icon (top-right) → Help → select order",
+            profileLocation = "Bottom bar: \"ACCOUNT\" tab (rightmost)",
+            orderHistoryLocation = "ACCOUNT (bottom bar) → My Orders",
         ),
 
         // ── Zomato ──────────────────────────────────────────────────────

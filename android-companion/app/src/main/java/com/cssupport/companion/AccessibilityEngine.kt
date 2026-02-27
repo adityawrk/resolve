@@ -1116,7 +1116,7 @@ data class ScreenState(
             "chat", "live chat", "talk to us", "message us",
             "back", "close", "cancel", "navigate up", "skip",
             "sign in", "log in", "sign out", "log out", "login",
-            "refund", "return", "complaint", "feedback",
+            "refund", "return", "complaint",
             "main menu", "sidebar", "hamburger",
         )
         if (navKeywords.any { label.contains(it) }) return true

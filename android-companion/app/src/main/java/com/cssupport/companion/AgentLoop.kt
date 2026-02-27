@@ -171,6 +171,13 @@ class AgentLoop(
 
         /** Hard ceiling on total loop iterations (including non-counted ones) to prevent infinite loops. */
         const val MAX_TOTAL_LOOP_ITERATIONS = 100
+
+        /** System packages that show dialogs on behalf of the target app (permissions, installs). */
+        val SYSTEM_DIALOG_PACKAGES = setOf(
+            "permissioncontroller",
+            "packageinstaller",
+            "com.android.systemui",
+        )
     }
 
     @Volatile
@@ -332,12 +339,15 @@ class AgentLoop(
 
             // Step 1b: App-scope restriction — detect if agent strayed to a non-target app.
             // Prevents the agent from interacting with unrelated apps (email, browser, etc.).
+            // System dialogs (permission prompts, installer) are part of the target app's flow.
             val targetPkg = caseContext.targetPlatform.lowercase()
             val currentPkg = screenState.packageName.lowercase()
+            val isSystemDialog = SYSTEM_DIALOG_PACKAGES.any { currentPkg.contains(it) }
             if (currentPkg.isNotEmpty()
                 && currentPkg != OWN_PACKAGE
                 && !currentPkg.contains(targetPkg)
                 && !targetPkg.contains(currentPkg)
+                && !isSystemDialog
             ) {
                 wrongAppTurnCount++
                 Log.w(tag, "[$iterationCount] Wrong app detected: $currentPkg (target: $targetPkg), count=$wrongAppTurnCount")
@@ -376,6 +386,16 @@ class AgentLoop(
             updateNavigationPhase(screenState)
             updateSubGoalProgress(screenState)
             trackFingerprint(currentFingerprint)
+
+            // Step 2a: Login wall detection — if the app requires login, ask the user.
+            if (detectLoginWall(screenState)) {
+                AgentLogStore.log("App requires login", LogCategory.APPROVAL_NEEDED, "Please log in to the app first")
+                return AgentResult.NeedsHumanReview(
+                    reason = "The app requires you to log in before support can be accessed. " +
+                        "Please log in, then try again.",
+                    iterationsCompleted = iterationCount,
+                )
+            }
 
             // Step 2b: Check for stagnation (screen not changing).
             if (changeDescription.startsWith("NO_CHANGE")) {
@@ -1049,6 +1069,37 @@ class AgentLoop(
     }
 
     /**
+     * Detect if the app is showing a login/sign-in screen with no path to support.
+     * Returns true only if we're confident this is a login wall (multiple login indicators
+     * and zero support-path indicators).
+     */
+    private fun detectLoginWall(screenState: ScreenState): Boolean {
+        // Only check during early navigation — once we're in support/chat, don't trigger.
+        if (currentPhase != NavigationPhase.NAVIGATING_TO_SUPPORT) return false
+        // Don't trigger on the very first screen (app may still be loading).
+        if (iterationCount <= 2) return false
+
+        val allText = screenState.elements.mapNotNull {
+            (it.text ?: it.contentDescription)?.lowercase()
+        }.joinToString(" ")
+
+        val loginIndicators = listOf(
+            "login", "sign in", "log in", "create account",
+            "phone number", "enter your phone", "mobile number",
+            "login/create account", "register", "sign up",
+        )
+        val supportPathIndicators = listOf(
+            "help", "support", "orders", "my orders", "order history",
+            "account", "profile",
+        )
+
+        val loginHits = loginIndicators.count { allText.contains(it) }
+        val supportHits = supportPathIndicators.count { allText.contains(it) }
+
+        return loginHits >= 2 && supportHits == 0
+    }
+
+    /**
      * Detect if the agent has strayed to a product/content page (e.g., pizza menu)
      * and compute a relevance score for the current screen.
      *
@@ -1567,7 +1618,7 @@ class AgentLoop(
             appendLine("- click_element: For buttons, chips, menu options shown on screen")
             appendLine("- type_message: ONLY when there's an active text input field and no option buttons match")
             appendLine("- wait_for_response: After EVERY message you send, to let the agent reply")
-            appendLine("- request_human_review: If asked for OTP, card digits, CAPTCHA, or info you don't have")
+            appendLine("- request_human_review: If asked for OTP, card digits, CAPTCHA, info you don't have, or if the app requires login")
             appendLine("- mark_resolved: ONLY when support EXPLICITLY confirms resolution (refund approved, ticket number given, etc.)")
             appendLine()
 
