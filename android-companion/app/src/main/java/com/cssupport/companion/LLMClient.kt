@@ -100,7 +100,7 @@ class LLMClient(private val config: LLMConfig) {
 
         val body = JSONObject().apply {
             put("model", config.model)
-            put("max_completion_tokens", 512)
+            put("max_completion_tokens", 1024)
             put("messages", messages)
             put("tools", buildToolDefinitions())
             put("tool_choice", "required")
@@ -270,7 +270,7 @@ class LLMClient(private val config: LLMConfig) {
 
         val body = JSONObject().apply {
             put("model", config.model)
-            put("max_tokens", 512)
+            put("max_tokens", 1024)
             put("system", systemPrompt)
             put("messages", messages)
             put("tools", buildAnthropicToolDefinitions())

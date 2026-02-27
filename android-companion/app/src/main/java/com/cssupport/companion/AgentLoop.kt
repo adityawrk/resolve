@@ -187,6 +187,9 @@ class AgentLoop(
     /**
      * Run the main agent loop. Suspends until the loop completes (resolved/failed/cancelled).
      */
+    /** Context for debug logging — set by CompanionAgentService before run(). */
+    var debugContext: android.content.Context? = null
+
     suspend fun run(): AgentResult {
         _state.value = AgentLoopState.RUNNING
         iterationCount = 0
@@ -206,6 +209,10 @@ class AgentLoop(
         maskedUpToIndex = 0
         lastVerifiedScreen = null
         wrongAppTurnCount = 0
+
+        // Initialize debug logging for this run.
+        debugContext?.let { DebugLogger.startNewRun(it, caseContext.targetPlatform) }
+        DebugLogger.logEvent("Case: ${caseContext.caseId}, Issue: ${caseContext.issue}, Goal: ${caseContext.desiredOutcome}")
 
         emit(AgentEvent.Started(caseId = caseContext.caseId))
         AgentLogStore.log("Agent loop started for case ${caseContext.caseId}", LogCategory.STATUS_UPDATE, "Starting...")
@@ -453,13 +460,21 @@ class AgentLoop(
             applyObservationMasking()
 
             val decision: AgentDecision
+            val systemPrompt = buildSystemPrompt()
             try {
+                // Debug: log system prompt on first iteration, user message every iteration.
+                if (iterationCount == 1) DebugLogger.logSystemPrompt(systemPrompt)
+                DebugLogger.logUserMessage(iterationCount, currentPhase.displayName, userMessage)
+
                 decision = llmClient.chatCompletion(
-                    systemPrompt = buildSystemPrompt(),
+                    systemPrompt = systemPrompt,
                     userMessage = userMessage,
                     conversationMessages = conversationHistory.toList(),
                 )
                 llmRetryCount = 0
+
+                // Debug: log LLM response.
+                DebugLogger.logLLMResponse(decision.toolName, decision.toolArguments, decision.reasoning)
             } catch (e: Exception) {
                 llmRetryCount++
                 Log.e(tag, "LLM call failed (attempt $llmRetryCount): ${e.javaClass.simpleName}: ${e.message}", e)
@@ -654,6 +669,7 @@ class AgentLoop(
 
             // Step 7: Record the turn in conversation history with verification feedback.
             val resultDescription = buildResultDescription(actionResult, verificationResult)
+            DebugLogger.logActionResult(actionDescription, resultDescription)
             recordConversationTurn(userMessage, decision, resultDescription)
 
             when (actionResult) {
@@ -1021,6 +1037,7 @@ class AgentLoop(
      * Detect what navigation phase the agent is currently in.
      */
     private fun updateNavigationPhase(screenState: ScreenState) {
+        val previousPhase = currentPhase
         val allText = screenState.elements.mapNotNull {
             it.text?.lowercase() ?: it.contentDescription?.lowercase()
         }.joinToString(" ")
@@ -1037,14 +1054,12 @@ class AgentLoop(
         // Chatbot screens (Dominos VCA, Swiggy, etc.) often show buttons without an input field.
         val chatbotIndicators = listOf(
             "virtual assistant", "how can i help", "select an option",
-            "choose from", "hi! how can", "what can i help", "chat with us",
+            "choose from below", "hi! how can", "what can i help", "chat with us",
             "queries & feedback", "we're here to help",
             "chat with agent", "talk to agent", "live chat",
-            "help you with", "what do you need help with",
+            "what do you need help with",
             "select a topic", "choose a topic", "pick a topic",
             "what went wrong", "what is the issue",
-            "i can help", "need help with", "tell us more",
-            "how was your", "rate your experience",
             "describe your issue", "raise a complaint",
         )
         val supportIndicators = listOf(
@@ -1079,6 +1094,11 @@ class AgentLoop(
 
             // Default: still navigating.
             else -> NavigationPhase.NAVIGATING_TO_SUPPORT
+        }
+
+        // Log phase transitions for debugging.
+        if (currentPhase != previousPhase) {
+            DebugLogger.logPhaseChange(previousPhase.displayName, currentPhase.displayName)
         }
 
         // Track consecutive navigation attempts for re-planning.
@@ -1708,104 +1728,87 @@ class AgentLoop(
 
     private fun buildSystemPrompt(): String {
         return buildString {
-            appendLine("You are Resolve, an AI agent navigating a real Android phone to reach customer support and resolve an issue for a customer.")
+            // -- Core identity (always) --
+            appendLine("You are Resolve, an AI agent on a real Android phone. You navigate apps to reach customer support and resolve issues.")
             appendLine("You ARE the customer. Speak in first person. Never reveal you are AI.")
             appendLine()
 
-            // -- Case context --
+            // -- Case context (always) --
             appendLine("## Issue")
             if (caseContext.customerName.isNotBlank() && caseContext.customerName != "Customer") {
-                appendLine("Customer name: ${caseContext.customerName}")
+                appendLine("Customer: ${caseContext.customerName}")
             }
             appendLine(caseContext.issue)
-            appendLine("Desired outcome: ${caseContext.desiredOutcome}")
-            if (!caseContext.orderId.isNullOrBlank()) {
-                appendLine("Order ID: ${caseContext.orderId}")
+            appendLine("Goal: ${caseContext.desiredOutcome}")
+            if (!caseContext.orderId.isNullOrBlank()) appendLine("Order: ${caseContext.orderId}")
+            if (caseContext.hasAttachments) appendLine("Evidence available to upload.")
+            appendLine()
+
+            // -- Screen reading rules (always, compact) --
+            appendLine("## Screen Format")
+            appendLine(">>> = navigation elements (tabs, profile, help). Click these.")
+            appendLine("~ = products/content. IGNORE these during navigation.")
+            appendLine("[N] = element ID. Use click_element(elementId=N).")
+            appendLine("\"unlabeled\" icons: position hints (far-left/center/far-right) help identify them.")
+            appendLine()
+
+            // -- Phase-specific instructions --
+            when (currentPhase) {
+                NavigationPhase.NAVIGATING_TO_SUPPORT, NavigationPhase.ON_ORDER_PAGE -> {
+                    appendLine("## Navigation (your current task)")
+                    appendLine("1. BOTTOM BAR: Click Account/Profile/More/Me tab")
+                    appendLine("2. TOP BAR: Click person/avatar icon (top-right)")
+                    appendLine("3. Account page → Orders / Order History")
+                    appendLine("4. Select the order${if (!caseContext.orderId.isNullOrBlank()) " (${caseContext.orderId})" else ""}")
+                    appendLine("5. Click Help/Support/Report Issue")
+                    appendLine("6. Click Chat/Live Chat or select issue category")
+                    appendLine()
+                    appendLine("ONLY click >>> elements. NEVER click products/food/deals.")
+                    appendLine("₹/wallet/cash icons are NOT navigation. Ignore them.")
+                    appendLine()
+
+                    // App-specific hints are most valuable during navigation.
+                    val profile = appNavProfile
+                    if (profile != null) {
+                        append(profile.toPromptBlock())
+                        appendLine()
+                    }
+                }
+
+                NavigationPhase.ON_SUPPORT_PAGE -> {
+                    appendLine("## On Support/Help Page")
+                    appendLine("Find: Chat, Live Chat, Talk to Agent, or an issue category that matches.")
+                    appendLine("Click the option closest to your issue. If no match, scroll down.")
+                    appendLine()
+                }
+
+                NavigationPhase.IN_CHAT -> {
+                    appendLine("## In Support Chat (your current task)")
+                    appendLine("You ARE the customer. Be polite but firm.")
+                    appendLine()
+                    appendLine("CRITICAL — most support uses CHATBOT MENUS with clickable option buttons:")
+                    appendLine("- ALWAYS click option buttons over typing. Look for: issue categories, refund, talk to agent")
+                    appendLine("- After clicking ANY option or sending a message: call wait_for_response")
+                    appendLine("- Only type_message when there's a text input AND no matching buttons")
+                    appendLine("- If bot loops: look for \"Talk to agent\" / \"Chat with human\"")
+                    appendLine()
+                    appendLine("First message example: \"Hi, I have an issue with my order${if (!caseContext.orderId.isNullOrBlank()) " #${caseContext.orderId}" else ""}. ${caseContext.issue.take(80)}. I'd like a ${caseContext.desiredOutcome.lowercase()}.\"")
+                    appendLine()
+                    appendLine("mark_resolved: ONLY when support confirms resolution (refund approved, ticket given).")
+                    appendLine("request_human_review: If asked for OTP, card digits, CAPTCHA, or info you don't have.")
+                    appendLine()
+                }
             }
-            if (caseContext.hasAttachments) {
-                appendLine("Evidence available to upload when needed.")
-            }
-            appendLine()
 
-            // -- Critical: how to read the screen and what to click --
-            appendLine("## How to Read the Screen")
-            appendLine("Elements marked >>> are NAVIGATION (tabs, profile, help, orders). These lead to support.")
-            appendLine("Elements marked ~ are PRODUCTS/CONTENT. These are NOT paths to support.")
-            appendLine("RULE: ONLY click elements marked >>> with [N] IDs. NEVER click ~ items.")
-            appendLine()
-            appendLine("## Unlabeled Icons")
-            appendLine("Some icons have no text — shown as \"unlabeled\" with position hints (far-left, left, center, right, far-right).")
-            appendLine("When the app-specific steps say 'rightmost unlabeled icon', pick the one marked (far-right).")
-            appendLine("NEVER click an icon with ₹/wallet/cash text when looking for a menu/sidebar — those open wallet, not navigation.")
-            appendLine()
-
-            // -- Navigation decision tree (compact, numbered) --
-            appendLine("## Navigation Priority (follow this order)")
-            appendLine("1. BOTTOM BAR: Click \"Account\", \"Profile\", \"More\", or \"Me\" tab")
-            appendLine("2. TOP BAR: Click person/avatar icon (usually top-right)")
-            appendLine("3. On Account/Profile: Click \"Orders\" or \"Order History\"")
-            appendLine("4. On Orders list: Click the relevant order${if (!caseContext.orderId.isNullOrBlank()) " (${caseContext.orderId})" else ""}")
-            appendLine("5. On Order detail: Click \"Help\", \"Support\", or \"Report Issue\"")
-            appendLine("6. On Help page: Click \"Chat\", \"Live Chat\", or select issue category")
-            appendLine("7. In Chat: Describe issue, request ${caseContext.desiredOutcome}, wait for response")
-            appendLine()
-
-            // -- App-specific navigation knowledge --
-            val profile = appNavProfile
-            if (profile != null) {
-                append(profile.toPromptBlock())
-                appendLine()
-            } else {
-                // Generic few-shot example for unknown apps.
-                appendLine("## Example")
-                appendLine("Screen: [4] btn: \"Pizza\", [5] btn: \"Sides\", [38] tab: \"Menu\" [SELECTED], [41] tab: \"More\"")
-                appendLine("CORRECT: click_element(elementId=41) → \"More\" leads to Account/Orders")
-                appendLine("WRONG: clicking Pizza or Sides — those are products, not support paths")
-                appendLine()
-            }
-
-            // -- In-chat behavior --
-            appendLine("## In Support Chat")
-            appendLine("You ARE the customer. Speak naturally in first person. Be polite but firm.")
-            appendLine()
-            appendLine("### Conversation strategy")
-            appendLine("1. FIRST MESSAGE: State issue clearly with order details.")
-            appendLine("   Example: \"Hi, I have an issue with my order${if (!caseContext.orderId.isNullOrBlank()) " #${caseContext.orderId}" else ""}. ${caseContext.issue.take(80)}. I'd like a ${caseContext.desiredOutcome.lowercase()}.\"")
-            appendLine("2. After sending: ALWAYS call wait_for_response (5s) before looking at screen again")
-            appendLine("3. Read the support agent's response carefully before replying")
-            appendLine("4. If the agent asks for details: provide them from the case context")
-            appendLine("5. If the agent offers a resolution: accept it if it matches desired outcome")
-            appendLine("6. If the agent asks you to choose an option: click the most relevant button/chip")
-            appendLine()
-            appendLine("### CRITICAL: Chatbot menus (this is how most apps work)")
-            appendLine("Most customer support is through CHATBOTS with BUTTON OPTIONS, not free-text chat.")
-            appendLine("The chatbot shows predefined options as clickable buttons/chips on screen.")
-            appendLine("ALWAYS prefer clicking an option button over typing text:")
-            appendLine("- Look for buttons like: \"Order issue\", \"Missing items\", \"Wrong order\", \"Refund\", \"Cancel\"")
-            appendLine("- Look for: \"Queries & feedback\", \"Talk to agent\", \"Chat with human\", \"Help with order\"")
-            appendLine("- If you see option buttons: click_element on the closest match to your issue")
-            appendLine("- If NO option buttons match AND there is a text input: use type_message")
-            appendLine("- After clicking an option, the bot may show MORE options — keep clicking the best match")
-            appendLine("- If the bot loops or cannot help, look for \"Talk to agent\" / \"Chat with human\" option")
-            appendLine()
-            appendLine("### When to use each tool")
-            appendLine("- click_element: For buttons, chips, menu options, links shown on screen (PREFERRED in chatbot)")
-            appendLine("- type_message: ONLY when there's an active text input field AND no option buttons match your need")
-            appendLine("- wait_for_response: After EVERY message you send or option you click, to let the agent/bot reply")
-            appendLine("- request_human_review: If asked for OTP, card digits, CAPTCHA, info you don't have, or if the app requires login")
-            appendLine("- mark_resolved: ONLY when support EXPLICITLY confirms resolution (refund approved, ticket number given, etc.)")
-            appendLine()
-
-            // -- Rules --
+            // -- Rules (always, compact) --
             appendLine("## Rules")
-            appendLine("- DISMISS popups immediately (press_back or click X/Close)")
-            appendLine("- NEVER type in search bars — only chat inputs")
-            appendLine("- NEVER share SSN, credit card, or passwords")
-            appendLine("- If stuck for 3 turns: press_back to go up one level, then try a different navigation path")
-            appendLine("- If the app requires login: call request_human_review immediately, do NOT try to navigate further")
-            appendLine("- ${SafetyPolicy.MAX_ITERATIONS} actions max. Be efficient — use the fewest clicks possible.")
-            appendLine("- Heed WARNING in tool results — if it says 'screen did not change', your click missed or the element was not interactive. Try a different element.")
-            appendLine("- After clicking a chatbot option, call wait_for_response to let the bot respond before your next action.")
+            appendLine("- Dismiss popups: press_back or click X/Close")
+            appendLine("- NEVER type in search bars")
+            appendLine("- NEVER share SSN, credit card, passwords")
+            appendLine("- Stuck 3+ turns? press_back, try different path")
+            appendLine("- App requires login? request_human_review immediately")
+            appendLine("- ${SafetyPolicy.MAX_ITERATIONS} actions max. Be efficient.")
+            appendLine("- WARNING in tool results = your action failed. Try different element.")
         }
     }
 
@@ -1894,7 +1897,7 @@ class AgentLoop(
                     appendLine(">>> NEXT: Find Chat/Live Chat or select the issue category.")
                 }
                 NavigationPhase.IN_CHAT -> {
-                    appendLine("GOAL: You are in the support chat. Follow the conversation strategy from the system prompt.")
+                    appendLine("GOAL: You are in the support chat.")
                     // Give context-specific guidance based on what's on screen.
                     if (screenState != null) {
                         val hasInput = screenState.elements.any { it.isEditable }
@@ -1902,31 +1905,32 @@ class AgentLoop(
                         val sHeight = screenState.elements.maxOfOrNull { it.bounds.bottom } ?: 2400
                         val topThreshold = sHeight / 8
                         val bottomThreshold = sHeight * 7 / 8
-                        val contentButtons = screenState.elements.filter { el ->
+                        // Find buttons with their element IDs from the indexed map.
+                        val indexedElements = screenState.elementIndex
+                        val contentButtonsWithIds = indexedElements.filter { (_, el) ->
                             el.isClickable
                                 && (el.text?.length ?: 0) > 2
                                 && el.bounds.centerY() in topThreshold..bottomThreshold
                         }
-                        val hasOptionButtons = contentButtons.size > 2
+                        val hasOptionButtons = contentButtonsWithIds.size > 2
                         if (hasOptionButtons) {
-                            // List the actual button labels so the LLM can make an informed choice.
-                            val buttonLabels = contentButtons
-                                .mapNotNull { it.text ?: it.contentDescription }
-                                .filter { it.length in 3..80 }
+                            appendLine(">>> CHATBOT OPTIONS DETECTED. Click the best match:")
+                            contentButtonsWithIds.entries
+                                .filter { (_, el) -> (el.text ?: el.contentDescription)?.length in 3..80 }
                                 .take(8)
-                            appendLine(">>> CHATBOT OPTIONS DETECTED. Click the best match for your issue:")
-                            buttonLabels.forEach { label ->
-                                appendLine("  - \"$label\"")
-                            }
-                            appendLine(">>> Do NOT type_message when clickable options are available. Click the closest match.")
+                                .forEach { (id, el) ->
+                                    val label = el.text ?: el.contentDescription ?: ""
+                                    appendLine("  - [${id}] \"$label\"")
+                                }
+                            appendLine(">>> CLICK an option. Do NOT type when buttons are available.")
                         }
                         if (hasInput && !hasOptionButtons) {
-                            appendLine(">>> There is a text input field and no option buttons. Type your message describing the issue, then call wait_for_response.")
+                            appendLine(">>> Text input available, no option buttons. Type your message, then wait_for_response.")
                         } else if (hasInput && hasOptionButtons) {
-                            appendLine(">>> There is also a text input field. Use it ONLY if NONE of the option buttons match your need.")
+                            appendLine(">>> Text input also available. Use ONLY if no button matches your need.")
                         }
                         if (!hasInput && !hasOptionButtons) {
-                            appendLine(">>> Waiting for the chatbot to respond. If no content loads, try scroll_down or wait_for_response.")
+                            appendLine(">>> Waiting for chatbot. Try scroll_down or wait_for_response.")
                         }
                     }
                 }

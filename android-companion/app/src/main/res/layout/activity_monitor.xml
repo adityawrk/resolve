@@ -183,6 +183,18 @@
           app:strokeColor="?attr/colorError"
           android:textColor="?attr/colorError" />
       </LinearLayout>
+
+      <!-- Share debug log -->
+      <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnShareLog"
+        style="@style/Resolve.Button.Text"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="4dp"
+        android:text="Share debug log"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:textSize="12sp" />
     </LinearLayout>
   </LinearLayout>
 

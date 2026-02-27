@@ -193,7 +193,7 @@ class AccessibilityEngine(private val service: AccessibilityService) {
         // a FrameLayout or LinearLayout wraps a TextView (e.g., Swiggy's LOGIN button).
         // Without this, the LLM sees "[N] btn: unlabeled" and can't understand the button.
         if (element.isClickable && element.text.isNullOrBlank() && element.contentDescription.isNullOrBlank()) {
-            val childText = collectChildText(node, maxDepth = 3)
+            val childText = collectChildText(node, maxDepth = 5)
             if (childText.isNotBlank()) {
                 element = element.copy(text = childText)
             }

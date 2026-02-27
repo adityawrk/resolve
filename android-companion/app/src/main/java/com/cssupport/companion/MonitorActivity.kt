@@ -8,7 +8,9 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -35,6 +37,7 @@ class MonitorActivity : AppCompatActivity() {
     private lateinit var btnDeny: MaterialButton
     private lateinit var btnAllow: MaterialButton
     private lateinit var emptyFeedState: LinearLayout
+    private lateinit var btnShareLog: MaterialButton
 
     private val feedAdapter = ChatFeedAdapter()
     private var isPaused = false
@@ -94,6 +97,7 @@ class MonitorActivity : AppCompatActivity() {
         btnDeny = findViewById(R.id.btnDeny)
         btnAllow = findViewById(R.id.btnAllow)
         emptyFeedState = findViewById(R.id.emptyFeedState)
+        btnShareLog = findViewById(R.id.btnShareLog)
     }
 
     private fun setupRecycler() {
@@ -138,6 +142,34 @@ class MonitorActivity : AppCompatActivity() {
         btnAllow.setOnClickListener {
             approvalOverlay.visibility = View.GONE
             CompanionAgentService.resume(this)
+        }
+
+        btnShareLog.setOnClickListener {
+            shareDebugLog()
+        }
+    }
+
+    private fun shareDebugLog() {
+        val logFile = DebugLogger.getLogFile()
+        if (logFile == null || !logFile.exists()) {
+            Toast.makeText(this, "No debug log available yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val uri = FileProvider.getUriForFile(
+                this,
+                "${packageName}.fileprovider",
+                logFile,
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "Resolve Agent Debug Log")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Share debug log"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Could not share log: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 

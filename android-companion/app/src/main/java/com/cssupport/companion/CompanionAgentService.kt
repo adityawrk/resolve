@@ -227,6 +227,7 @@ class CompanionAgentService : Service() {
             safetyPolicy = safetyPolicy,
             launchTargetApp = { tryLaunchApp(targetPlatform) },
             onEvent = { event ->
+
                 // Update notification with current action.
                 val eventMsg = when (event) {
                     is AgentEvent.DecisionMade -> event.action
@@ -239,6 +240,7 @@ class CompanionAgentService : Service() {
                 }
             },
         )
+        agentLoop.debugContext = this@CompanionAgentService
         currentAgentLoop = agentLoop
 
         updateNotification("Working in $targetPlatform...")
