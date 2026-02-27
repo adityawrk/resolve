@@ -6,8 +6,6 @@ Resolve is an open-source Android app that automates customer support chats on y
 
 No backend server. No cloud dependency. Your API key stays on your device.
 
-> **Status: Alpha.** Resolve reliably navigates to support sections in most apps. End-to-end resolution — handling the full chatbot conversation, uploading evidence, getting confirmation — works in some cases but is still being improved. Contributions to chat-phase handling are especially welcome.
-
 ## The Problem
 
 Getting help from customer support is painful:
@@ -128,6 +126,8 @@ The agent architecture implements patterns from 7 published mobile agent papers 
 | **Navigation-first display** | Novel | Prevents product-page distraction | Content elements lose IDs during navigation phases |
 
 Full research notes: [`AGENT_RESEARCH.md`](android-companion/AGENT_RESEARCH.md), [`RESEARCH_CODEX.md`](android-companion/RESEARCH_CODEX.md)
+
+> **Status: Alpha.** Resolve reliably navigates to support sections in most apps. End-to-end resolution — handling the full chatbot conversation, uploading evidence, getting confirmation — works in some cases but is still being improved. Contributions to chat-phase handling are especially welcome.
 
 ## Getting Started
 
