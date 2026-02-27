@@ -24,17 +24,17 @@ Resolve is an AI agent that sits between you and the support chat. It uses Andro
 ```
 You fill out one form:
   App:         "Dominos"
-  Order:       "#12345 - Large Pepperoni"
+  Order:       "Large pepperoni pizza, ordered last night"
   Issue:       "Arrived cold and 45 minutes late"
   Outcome:     "Full refund"
   Evidence:    [photo of cold pizza]
 
 Resolve does the rest:
   1. Opens Dominos app
-  2. Navigates to Order History → finds order #12345
+  2. Navigates to Order History → finds the matching order
   3. Taps "Help" → "Issue with order"
   4. Selects "Order arrived late" in the chatbot menu
-  5. Types: "My order #12345 arrived 45 minutes late and the food was cold.
+  5. Types: "My pizza arrived 45 minutes late and the food was cold.
             I've attached a photo. I'd like a full refund."
   6. Uploads the evidence photo
   7. Handles follow-up questions from the support agent
@@ -56,7 +56,7 @@ Resolve runs an **observe-think-act loop** on your device:
 │     label, and menu item gets a number      │
 │     [1] Button: "Orders"                    │
 │     [2] Button: "Help"                      │
-│     [3] Text: "Order #12345 - Pepperoni"    │
+│     [3] Text: "Large Pepperoni - Yesterday"  │
 │                                             │
 │  2. THINK                                   │
 │     LLM receives the numbered screen +      │
@@ -160,7 +160,7 @@ cd resolve/android-companion
    - **Use your own API key** — enter provider, key, model, and optional endpoint
 2. **Enable accessibility service** — the app walks you through it
    - On Android 13+ with sideloaded APKs: allow restricted settings first (the app guides you)
-3. **Fill in your issue** — app name, order details, description, desired outcome, optional photos
+3. **Fill in your issue** — app name, a rough description of your order, what went wrong, desired outcome, optional photos
 4. **Tap Resolve It** and switch to the target app
 
 The agent runs as a foreground service with a floating stop button. Tap it anytime to cancel.
