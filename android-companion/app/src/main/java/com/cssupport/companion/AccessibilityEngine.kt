@@ -1088,17 +1088,22 @@ data class ScreenState(
         if (className.contains("tab")) return true
 
         // Navigation keywords.
+        // Exact-match keywords (short words that would cause false positives with contains).
+        val exactNavKeywords = setOf("me", "more", "home")
+        if (exactNavKeywords.contains(label.trim())) return true
+
+        // Substring-match keywords (safe to match anywhere in the label).
         val navKeywords = listOf(
-            "account", "profile", "more", "settings", "me", "my account",
+            "account", "profile", "settings", "my account",
             "orders", "order history", "my orders", "your orders", "past orders",
             "order details", "track order",
             "help", "support", "contact", "get help", "report", "issue",
             "contact us", "contact store", "queries",
             "chat", "live chat", "talk to us", "message us",
-            "back", "close", "cancel", "navigate up", "home", "skip",
+            "back", "close", "cancel", "navigate up", "skip",
             "sign in", "log in", "sign out", "log out", "login",
             "refund", "return", "complaint", "feedback",
-            "main menu",
+            "main menu", "sidebar", "hamburger",
         )
         if (navKeywords.any { label.contains(it) }) return true
 

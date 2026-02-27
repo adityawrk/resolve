@@ -36,7 +36,7 @@ class CompanionAgentService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val tag = "CSCompanionService"
 
-    private var running = false
+    @Volatile private var running = false
     private var currentAgentLoop: AgentLoop? = null
     private var currentAgentJob: Job? = null
 
@@ -193,6 +193,12 @@ class CompanionAgentService : Service() {
                     stopSelf()
                     return
                 }
+            } else {
+                // Refresh failed — stop immediately instead of using expired token.
+                AgentLogStore.log("FAILED: Could not refresh authentication", LogCategory.ERROR, "Authentication expired — please sign in again")
+                running = false
+                stopSelf()
+                return
             }
         }
 

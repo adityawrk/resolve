@@ -111,8 +111,8 @@ class AgentLoop(
     /** Count of consecutive "no tool call" wait responses. */
     private var consecutiveNoToolCalls = 0
 
-    /** Set of element IDs that have been proven to lead to wrong screens. */
-    private val bannedElementIds = mutableSetOf<Int>()
+    /** Labels of elements that have been proven to lead to wrong screens (persists across screen captures). */
+    private val bannedElementLabels = mutableSetOf<String>()
 
     /** Count of consecutive turns spent in a non-target app. */
     private var wrongAppTurnCount = 0
@@ -380,17 +380,17 @@ class AgentLoop(
             // Step 2d: Detect wrong screen (product page instead of navigation).
             val wrongScreenWarning = detectWrongScreen(screenState)
 
-            // Step 2e: Ban elements that led to wrong screens.
-            // If we detected a wrong screen AND the previous action was a click, ban that element.
+            // Step 2e: Ban elements that led to wrong screens (by label, not by ID,
+            // since numeric IDs reset with each screen capture).
             if (wrongScreenWarning.isNotBlank() && recentActionDescs.isNotEmpty()) {
                 val lastAction = recentActionDescs.lastOrNull() ?: ""
-                // describeAction format: "Click: [6]" or "Click: [6] \"label\""
-                val idMatch = Regex("\\[(\\d+)]").find(lastAction)
-                if (idMatch != null) {
-                    val badId = idMatch.groupValues[1].toIntOrNull()
-                    if (badId != null) {
-                        bannedElementIds.add(badId)
-                        Log.w(tag, "Banned element $badId — led to wrong screen")
+                // describeAction format: "Click: [6] \"label\""
+                val labelMatch = Regex("\"(.+?)\"").find(lastAction)
+                if (labelMatch != null) {
+                    val badLabel = labelMatch.groupValues[1].lowercase()
+                    if (badLabel.isNotBlank()) {
+                        bannedElementLabels.add(badLabel)
+                        Log.w(tag, "Banned element label '$badLabel' — led to wrong screen")
                     }
                 }
             }
@@ -398,8 +398,9 @@ class AgentLoop(
             // Step 3: Build the user message with numbered elements and progress tracker.
             // During navigation phases, collapse product/content elements to prevent
             // the LLM from clicking food items instead of navigation tabs.
+            // Only collapse during initial navigation — on the order page, the LLM
+            // needs to see and click on order cards to find the right one.
             val collapseContent = currentPhase == NavigationPhase.NAVIGATING_TO_SUPPORT
-                || currentPhase == NavigationPhase.ON_ORDER_PAGE
             val formattedScreen = screenState.formatForLLM(
                 previousScreen = previousScreenState,
                 collapseContent = collapseContent,
@@ -554,16 +555,18 @@ class AgentLoop(
             recentActionDescs.add(actionSignature)
             while (recentActionDescs.size > 10) recentActionDescs.removeAt(0)
 
-            // If the action is a click on a banned element, skip it.
-            val clickedId = (decision.action as? AgentAction.ClickElement)?.elementId
-            if (clickedId != null && clickedId in bannedElementIds) {
-                Log.w(tag, "[$iterationCount] Skipping click on banned element $clickedId")
+            // If the action is a click on a banned element (matched by label), skip it.
+            val clickAction = decision.action as? AgentAction.ClickElement
+            val clickLabel = clickAction?.label?.lowercase()
+            val isBanned = clickLabel != null && bannedElementLabels.any { clickLabel.contains(it) || it.contains(clickLabel) }
+            if (isBanned) {
+                Log.w(tag, "[$iterationCount] Skipping click on banned element '$clickLabel'")
                 recordConversationTurn(
                     userMessage, decision,
-                    "BLOCKED: Element [$clickedId] was already tried and led to a WRONG screen. " +
+                    "BLOCKED: Element '$clickLabel' was already tried and led to a WRONG screen. " +
                         "This element is banned. Choose a DIFFERENT element."
                 )
-                AgentLogStore.log("[$iterationCount] Blocked banned element $clickedId", LogCategory.DEBUG, "Trying different path...")
+                AgentLogStore.log("[$iterationCount] Blocked banned element '$clickLabel'", LogCategory.DEBUG, "Trying different path...")
                 delay(SafetyPolicy.MIN_ACTION_DELAY_MS)
                 continue
             }
@@ -733,10 +736,11 @@ class AgentLoop(
     private fun updateSubGoalProgress(screenState: ScreenState) {
         if (subGoals.isEmpty()) return
 
-        // Sub-goal 0: Open target app -- completed if we're in the right package.
+        // Sub-goal 0: Open target app -- completed if we're in the target package.
         val targetPkg = caseContext.targetPlatform.lowercase()
         val currentPkg = screenState.packageName.lowercase()
-        if (currentPkg != OWN_PACKAGE && currentPkg.isNotEmpty()) {
+        if (currentPkg.isNotEmpty() && currentPkg != OWN_PACKAGE
+            && (currentPkg.contains(targetPkg) || targetPkg.contains(currentPkg))) {
             markSubGoalDone(0)
         }
 
@@ -964,19 +968,23 @@ class AgentLoop(
         }.joinToString(" ")
         val hasInputField = screenState.elements.any { it.isEditable }
 
+        // Count how many distinct indicators are present for each phase.
+        // This prevents false triggers from ubiquitous words like "order" or "track".
+        val chatIndicators = listOf("send", "type a message", "type here", "write a message")
+        val supportIndicators = listOf("support", "contact", "faq", "get help", "contact us", "queries")
+        val orderPageIndicators = listOf("order details", "order summary", "order status", "order #",
+            "order id", "help with this order", "support for this order", "report issue")
+
         currentPhase = when {
             // Chat phase: there's an input field and the screen looks like a conversation.
-            hasInputField && (allText.contains("send") || allText.contains("type a message")
-                || allText.contains("type here") || allText.contains("write a message")
-                || allText.contains("chat")) -> NavigationPhase.IN_CHAT
+            hasInputField && chatIndicators.any { allText.contains(it) } -> NavigationPhase.IN_CHAT
 
-            // Help/support page.
-            allText.contains("help") && (allText.contains("support") || allText.contains("contact")
-                || allText.contains("faq") || allText.contains("get help")) -> NavigationPhase.ON_SUPPORT_PAGE
+            // Help/support page: "help" + at least one support-specific term.
+            allText.contains("help") && supportIndicators.any { allText.contains(it) } ->
+                NavigationPhase.ON_SUPPORT_PAGE
 
-            // Order detail page.
-            allText.contains("order") && (allText.contains("help") || allText.contains("support")
-                || allText.contains("track") || allText.contains("details")) -> NavigationPhase.ON_ORDER_PAGE
+            // Order detail page: must have specific compound phrases, not just "order" + "track".
+            orderPageIndicators.any { allText.contains(it) } -> NavigationPhase.ON_ORDER_PAGE
 
             // Default: still navigating.
             else -> NavigationPhase.NAVIGATING_TO_SUPPORT
@@ -1012,11 +1020,11 @@ class AgentLoop(
         }
 
         // Product page indicators — if many of these appear, agent is on a wrong screen.
+        // Note: "₹" and "rs." are omitted because order history pages legitimately show prices.
         val productKeywords = listOf(
             "add to cart", "add to bag", "buy now", "add item", "customize",
-            "quantity", "qty", "size", "regular", "medium", "large",
+            "quantity", "qty",
             "toppings", "extra cheese", "crust",
-            "₹", "rs.", "price", "mrp", "discount", "off",
             "veg", "non-veg", "bestseller", "popular",
             "ratings", "reviews", "stars",
         )
@@ -1549,9 +1557,9 @@ class AgentLoop(
             }
 
             // Banned elements list.
-            if (bannedElementIds.isNotEmpty()) {
+            if (bannedElementLabels.isNotEmpty()) {
                 appendLine()
-                appendLine("BANNED ELEMENTS (led to wrong screens, do NOT click): ${bannedElementIds.joinToString(", ") { "[$it]" }}")
+                appendLine("BANNED ELEMENTS (led to wrong screens, do NOT click): ${bannedElementLabels.joinToString(", ") { "\"$it\"" }}")
             }
 
             // Re-planning after stuck navigation.

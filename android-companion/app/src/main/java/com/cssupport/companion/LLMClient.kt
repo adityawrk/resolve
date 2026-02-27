@@ -193,55 +193,83 @@ class LLMClient(private val config: LLMConfig) {
     ): AgentDecision {
         val url = "https://api.anthropic.com/v1/messages"
 
-        val messages = JSONArray().apply {
-            if (conversationMessages != null && conversationMessages.isNotEmpty()) {
-                for (msg in conversationMessages) {
-                    when (msg) {
-                        is ConversationMessage.UserObservation -> {
-                            put(JSONObject().put("role", "user").put("content", msg.content))
-                        }
-                        is ConversationMessage.AssistantToolCall -> {
-                            put(JSONObject().apply {
-                                put("role", "assistant")
-                                put("content", JSONArray().apply {
-                                    if (msg.reasoning.isNotBlank()) {
-                                        put(JSONObject().apply {
-                                            put("type", "text")
-                                            put("text", msg.reasoning)
-                                        })
-                                    }
+        // Anthropic requires strictly alternating user/assistant roles.
+        // We must merge consecutive same-role messages into one message with a content array.
+        val rawMessages = mutableListOf<JSONObject>()
+        if (conversationMessages != null && conversationMessages.isNotEmpty()) {
+            for (msg in conversationMessages) {
+                when (msg) {
+                    is ConversationMessage.UserObservation -> {
+                        rawMessages.add(JSONObject().put("role", "user").put("content", msg.content))
+                    }
+                    is ConversationMessage.AssistantToolCall -> {
+                        rawMessages.add(JSONObject().apply {
+                            put("role", "assistant")
+                            put("content", JSONArray().apply {
+                                if (msg.reasoning.isNotBlank()) {
                                     put(JSONObject().apply {
-                                        put("type", "tool_use")
-                                        put("id", msg.toolCallId)
-                                        put("name", msg.toolName)
-                                        put("input", JSONObject(msg.toolArguments))
+                                        put("type", "text")
+                                        put("text", msg.reasoning)
                                     })
+                                }
+                                put(JSONObject().apply {
+                                    put("type", "tool_use")
+                                    put("id", msg.toolCallId)
+                                    put("name", msg.toolName)
+                                    put("input", try { JSONObject(msg.toolArguments) } catch (_: Exception) { JSONObject() })
                                 })
                             })
-                        }
-                        is ConversationMessage.ToolResult -> {
-                            put(JSONObject().apply {
-                                put("role", "user")
-                                put("content", JSONArray().apply {
-                                    put(JSONObject().apply {
-                                        put("type", "tool_result")
-                                        put("tool_use_id", msg.toolCallId)
-                                        put("content", msg.result)
-                                    })
+                        })
+                    }
+                    is ConversationMessage.ToolResult -> {
+                        rawMessages.add(JSONObject().apply {
+                            put("role", "user")
+                            put("content", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("type", "tool_result")
+                                    put("tool_use_id", msg.toolCallId)
+                                    put("content", msg.result)
                                 })
                             })
-                        }
+                        })
                     }
                 }
             }
+        }
+        // Append the current observation as the latest user message.
+        rawMessages.add(JSONObject().put("role", "user").put("content", userMessage))
 
-            // Always append the current observation as the latest user message.
-            put(JSONObject().put("role", "user").put("content", userMessage))
+        // Merge consecutive same-role messages to satisfy Anthropic's alternation requirement.
+        val messages = JSONArray()
+        for (msg in rawMessages) {
+            val role = msg.getString("role")
+            if (messages.length() > 0 && messages.getJSONObject(messages.length() - 1).getString("role") == role) {
+                // Merge into the previous message by combining content.
+                val prev = messages.getJSONObject(messages.length() - 1)
+                val prevContent = prev.opt("content")
+                val curContent = msg.opt("content")
+                val merged = JSONArray()
+                // Convert previous content to array form if it's a string.
+                if (prevContent is JSONArray) {
+                    for (i in 0 until prevContent.length()) merged.put(prevContent.get(i))
+                } else if (prevContent is String) {
+                    merged.put(JSONObject().put("type", "text").put("text", prevContent))
+                }
+                // Append current content.
+                if (curContent is JSONArray) {
+                    for (i in 0 until curContent.length()) merged.put(curContent.get(i))
+                } else if (curContent is String) {
+                    merged.put(JSONObject().put("type", "text").put("text", curContent))
+                }
+                prev.put("content", merged)
+            } else {
+                messages.put(msg)
+            }
         }
 
         val body = JSONObject().apply {
             put("model", config.model)
-            put("max_tokens", 1024)
+            put("max_tokens", 512)
             put("system", systemPrompt)
             put("messages", messages)
             put("tools", buildAnthropicToolDefinitions())
@@ -260,6 +288,13 @@ class LLMClient(private val config: LLMConfig) {
     }
 
     private fun parseAnthropicResponse(json: JSONObject): AgentDecision {
+        // Check for Anthropic error responses (e.g., overloaded, rate-limited).
+        if (json.optString("type") == "error") {
+            val errorMsg = json.optJSONObject("error")?.optString("message", null)
+                ?: "Anthropic API error"
+            throw LLMException("Anthropic error: $errorMsg")
+        }
+
         val content = json.optJSONArray("content")
         if (content == null || content.length() == 0) {
             return AgentDecision.wait("No content in Anthropic response")
@@ -586,8 +621,8 @@ class LLMClient(private val config: LLMConfig) {
                 // Include more of the response body so the actual error is visible in logs.
                 val errorDetail = try {
                     val errJson = JSONObject(text)
-                    errJson.optJSONObject("error")?.optString("message")
-                        ?: errJson.optString("message")
+                    errJson.optJSONObject("error")?.optString("message", null)
+                        ?: errJson.optString("message", null)
                         ?: text.take(300)
                 } catch (_: Exception) {
                     text.take(300)

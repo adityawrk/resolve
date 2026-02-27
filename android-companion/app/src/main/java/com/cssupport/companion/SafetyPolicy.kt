@@ -36,10 +36,12 @@ class SafetyPolicy(
                 // Validate the label if present (for financial/destructive keyword checks).
                 val label = action.label ?: action.expectedOutcome
                 val result = if (label.isNotBlank()) validateClick(label) else PolicyResult.Allowed
-                // Auto-approve safe click actions when the user has opted in.
-                // Message-level blocks (PII, passwords) are never auto-approved.
+                // Auto-approve non-financial click actions when the user has opted in.
+                // Financial actions always require human approval (intentional friction).
                 if (result is PolicyResult.NeedsApproval && autoApproveSafeActions) {
-                    PolicyResult.Allowed
+                    val lower = (label ?: "").lowercase()
+                    val isFinancial = FINANCIAL_KEYWORDS.any { lower.contains(it) }
+                    if (isFinancial) result else PolicyResult.Allowed
                 } else {
                     result
                 }
@@ -153,7 +155,7 @@ class SafetyPolicy(
         const val MAX_MESSAGE_LENGTH = 2000
 
         // SSN: xxx-xx-xxxx or 9 consecutive digits.
-        private val SSN_PATTERN = Regex("""\b\d{3}-\d{2}-\d{4}\b""")
+        private val SSN_PATTERN = Regex("""\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b""")
 
         // Credit card: 13-19 digits with optional spaces/dashes.
         private val CREDIT_CARD_PATTERN = Regex("""\b[\d][\d\s-]{11,22}[\d]\b""")
