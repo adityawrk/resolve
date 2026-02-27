@@ -103,6 +103,15 @@
   <string name="settings_hide_api_fields">Hide API key fields</string>
   <string name="settings_provider_oauth">ChatGPT (OAuth)</string>
   <string name="settings_not_configured">Not configured</string>
+  <string name="settings_oauth_title">ChatGPT</string>
+  <string name="settings_oauth_connected">Connected</string>
+  <string name="settings_oauth_not_connected">Not connected</string>
+  <string name="settings_oauth_sign_in">Sign in with ChatGPT</string>
+  <string name="settings_oauth_disconnect">Disconnect</string>
+  <string name="settings_api_key_title">API Key</string>
+  <string name="settings_api_not_configured">Not configured</string>
+  <string name="settings_configure_api">Configure</string>
+  <string name="settings_hide_form">Hide</string>
   <string name="settings_accessibility_enabled">Enabled and running</string>
   <string name="settings_accessibility_disabled">Not enabled</string>
   <string name="settings_saved">Saved</string>

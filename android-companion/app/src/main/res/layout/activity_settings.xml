@@ -86,7 +86,9 @@
         android:textAppearance="?attr/textAppearanceTitleSmall"
         android:textColor="?attr/colorPrimary" />
 
+      <!-- Card 1: ChatGPT (OAuth) -->
       <com.google.android.material.card.MaterialCardView
+        android:id="@+id/oauthCard"
         style="@style/Resolve.Card"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -99,34 +101,104 @@
           android:orientation="vertical"
           android:padding="@dimen/card_padding">
 
-          <!-- Current provider display -->
-          <TextView
-            android:layout_width="wrap_content"
+          <!-- Title row: dot + title -->
+          <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/settings_current_provider"
-            android:textAppearance="?attr/textAppearanceLabelMedium"
-            android:textColor="?attr/colorOnSurfaceVariant" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-          <TextView
-            android:id="@+id/currentProviderText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_xs"
-            android:textAppearance="?attr/textAppearanceBodyLarge"
-            android:textColor="?attr/colorOnSurface"
-            tools:text="ChatGPT (OAuth)" />
+            <View
+              android:id="@+id/oauthStatusDot"
+              android:layout_width="@dimen/status_dot_size"
+              android:layout_height="@dimen/status_dot_size"
+              android:background="@drawable/bg_status_dot_error" />
 
-          <!-- Switch auth method -->
+            <TextView
+              android:layout_width="0dp"
+              android:layout_height="wrap_content"
+              android:layout_weight="1"
+              android:layout_marginStart="@dimen/space_sm"
+              android:text="@string/settings_oauth_title"
+              android:textAppearance="?attr/textAppearanceBodyLarge"
+              android:textColor="?attr/colorOnSurface" />
+
+            <TextView
+              android:id="@+id/oauthStatusText"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:textAppearance="?attr/textAppearanceLabelMedium"
+              android:textColor="?attr/colorOnSurfaceVariant"
+              tools:text="Connected" />
+          </LinearLayout>
+
           <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSwitchAuth"
-            style="@style/Resolve.Button.Text"
-            android:layout_width="wrap_content"
-            android:layout_height="44dp"
+            android:id="@+id/btnOAuthAction"
+            style="@style/Resolve.Button.Tonal"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/button_height_secondary"
             android:layout_marginTop="@dimen/element_gap"
-            android:text="@string/settings_switch_auth"
-            android:textColor="?attr/colorPrimary" />
+            android:text="@string/settings_oauth_sign_in" />
 
-          <!-- Custom API key fields (hidden when using OAuth) -->
+        </LinearLayout>
+      </com.google.android.material.card.MaterialCardView>
+
+      <!-- Card 2: API Key -->
+      <com.google.android.material.card.MaterialCardView
+        android:id="@+id/apiKeyCard"
+        style="@style/Resolve.Card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/element_gap"
+        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh">
+
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="vertical"
+          android:padding="@dimen/card_padding">
+
+          <!-- Title row: dot + title + status -->
+          <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <View
+              android:id="@+id/apiKeyStatusDot"
+              android:layout_width="@dimen/status_dot_size"
+              android:layout_height="@dimen/status_dot_size"
+              android:background="@drawable/bg_status_dot_error" />
+
+            <TextView
+              android:layout_width="0dp"
+              android:layout_height="wrap_content"
+              android:layout_weight="1"
+              android:layout_marginStart="@dimen/space_sm"
+              android:text="@string/settings_api_key_title"
+              android:textAppearance="?attr/textAppearanceBodyLarge"
+              android:textColor="?attr/colorOnSurface" />
+
+            <TextView
+              android:id="@+id/apiKeyStatusText"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:textAppearance="?attr/textAppearanceLabelMedium"
+              android:textColor="?attr/colorOnSurfaceVariant"
+              tools:text="OpenAI (gpt-5-mini)" />
+          </LinearLayout>
+
+          <!-- Configure / Hide button -->
+          <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnConfigureApi"
+            style="@style/Resolve.Button.Tonal"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/button_height_secondary"
+            android:layout_marginTop="@dimen/element_gap"
+            android:text="@string/settings_configure_api" />
+
+          <!-- API key form fields (hidden by default) -->
           <LinearLayout
             android:id="@+id/apiKeySection"
             android:layout_width="match_parent"
@@ -217,6 +289,7 @@
           </LinearLayout>
         </LinearLayout>
       </com.google.android.material.card.MaterialCardView>
+
 
       <!-- ===== SECTION 2: Accessibility Service ===== -->
       <TextView

@@ -18,7 +18,6 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
@@ -39,7 +38,6 @@ class MainActivity : AppCompatActivity() {
 
     // Views
     private lateinit var greetingText: TextView
-    private lateinit var modelChip: Chip
     private lateinit var appNameLayout: TextInputLayout
     private lateinit var appNameInput: TextInputEditText
     private lateinit var issueInput: TextInputEditText
@@ -80,7 +78,6 @@ class MainActivity : AppCompatActivity() {
 
         bindViews()
         setupListeners()
-        refreshModelChip()
 
         // Time-aware greeting.
         greetingText.text = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
@@ -90,14 +87,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        refreshModelChip()
-    }
-
     private fun bindViews() {
         greetingText = findViewById(R.id.greetingText)
-        modelChip = findViewById(R.id.modelChip)
         appNameLayout = findViewById(R.id.appNameLayout)
         appNameInput = findViewById(R.id.appNameInput)
         issueInput = findViewById(R.id.issueInput)
@@ -136,23 +127,6 @@ class MainActivity : AppCompatActivity() {
 
         // Resolve It!
         btnResolveIt.setOnClickListener { resolveIt() }
-    }
-
-    private fun refreshModelChip() {
-        // Hide the model chip for OAuth users -- they don't need to see internal model names.
-        if (authManager.isOAuthTokenValid()) {
-            modelChip.visibility = View.GONE
-            return
-        }
-
-        val config = authManager.loadLLMConfig()
-        if (config != null) {
-            modelChip.text = config.model
-            modelChip.visibility = View.VISIBLE
-        } else {
-            modelChip.text = getString(R.string.model_chip_label)
-            modelChip.visibility = View.VISIBLE
-        }
     }
 
     private fun updateAttachmentUI() {

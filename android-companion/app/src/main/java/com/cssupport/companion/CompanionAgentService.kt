@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -33,7 +34,7 @@ import kotlinx.coroutines.launch
  */
 class CompanionAgentService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val tag = "CSCompanionService"
 
     @Volatile private var running = false
@@ -76,6 +77,11 @@ class CompanionAgentService : Service() {
                     Log.i(tag, "Received ACTION_START")
                     if (!running) {
                         running = true
+                        // Recreate scope if it was cancelled by a previous onDestroy().
+                        // Android reuses service instances, so the old scope may be dead.
+                        if (!scope.isActive) {
+                            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+                        }
                         val caseId = intent.getStringExtra(EXTRA_CASE_ID) ?: "local"
                         val issue = intent.getStringExtra(EXTRA_ISSUE) ?: ""
                         val desiredOutcome = intent.getStringExtra(EXTRA_DESIRED_OUTCOME) ?: "Resolve the issue"

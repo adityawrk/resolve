@@ -42,8 +42,8 @@ object ChatGPTOAuth {
     // Scopes -- offline_access is required to receive a refresh token
     private const val SCOPE = "openid profile email offline_access"
 
-    // Default model for ChatGPT OAuth users
-    const val DEFAULT_MODEL = "gpt-5-mini"
+    // Default model for ChatGPT OAuth users (Codex plan)
+    const val DEFAULT_MODEL = "gpt-5.3-codex"
 
     /** Timeout for the localhost callback server (60 seconds). */
     private const val CALLBACK_TIMEOUT_MS = 60_000L
@@ -129,18 +129,41 @@ object ChatGPTOAuth {
                     val state = params["state"]
                     val error = params["error"]
 
-                    // Build the HTML response
+                    // Build the HTML response.
+                    // Uses a direct custom-scheme link (resolve://auth) to close
+                    // the Custom Tab and return to the app. Chrome Custom Tabs
+                    // close automatically when navigating to an external app via
+                    // custom scheme. OAuthReturnActivity matches resolve://auth,
+                    // finishes immediately, and the calling activity's onResume
+                    // detects saved credentials and navigates forward.
+                    //
+                    // We also try an automatic redirect via JS after 1.5s as a
+                    // backup — e.g. if the token exchange finishes quickly and
+                    // the user is slow to tap.
+                    val returnUri = "resolve://auth"
+
                     val htmlBody = if (code != null) {
-                        "<html><body style=\"font-family:sans-serif;text-align:center;padding:40px;\">" +
-                            "<h2>Authentication complete!</h2>" +
-                            "<p>You can return to Resolve.</p>" +
+                        "<html><head>" +
+                            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
+                            "</head><body style=\"font-family:sans-serif;text-align:center;padding:40px 24px;background:#1a1a2e;color:#e0e0e0;\">" +
+                            "<h2 style=\"color:#a29bfe;margin-bottom:8px;\">Authentication complete!</h2>" +
+                            "<p style=\"color:#aaa;margin-bottom:32px;\">Tap the button below to continue.</p>" +
+                            "<a href=\"$returnUri\" " +
+                            "style=\"display:inline-block;background:#6C5CE7;color:#fff;font-size:18px;" +
+                            "font-weight:600;padding:16px 48px;border-radius:28px;text-decoration:none;" +
+                            "box-shadow:0 4px 12px rgba(108,92,231,0.4);\">" +
+                            "Return to Resolve</a>" +
+                            "<script>setTimeout(function(){window.location='$returnUri';},1500);</script>" +
                             "</body></html>"
                     } else {
                         val errorDesc = params["error_description"] ?: error ?: "Unknown error"
-                        "<html><body style=\"font-family:sans-serif;text-align:center;padding:40px;\">" +
-                            "<h2>Authentication failed</h2>" +
+                        "<html><head>" +
+                            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
+                            "</head><body style=\"font-family:sans-serif;text-align:center;padding:40px 24px;background:#1a1a2e;color:#e0e0e0;\">" +
+                            "<h2 style=\"color:#e74c3c;\">Authentication failed</h2>" +
                             "<p>$errorDesc</p>" +
-                            "<p>Please return to Resolve and try again.</p>" +
+                            "<p style=\"margin-top:32px;\"><a href=\"$returnUri\" " +
+                            "style=\"color:#a29bfe;font-size:16px;\">Return to Resolve</a></p>" +
                             "</body></html>"
                     }
 

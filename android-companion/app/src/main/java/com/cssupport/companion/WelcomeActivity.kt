@@ -103,6 +103,19 @@ class WelcomeActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // If credentials were saved while the Custom Tab was in the foreground
+        // (OAuth flow completed in the background), navigate forward now.
+        if (!isFinishing && (authManager.hasLLMCredentials() || authManager.isOAuthTokenValid())) {
+            if (SupportAccessibilityService.isRunning()) {
+                navigateToMain()
+            } else {
+                navigateToOnboarding()
+            }
+        }
+    }
+
     // ── OAuth Flow ──────────────────────────────────────────────────────────
 
     /**
@@ -208,7 +221,13 @@ class WelcomeActivity : AppCompatActivity() {
                 )
 
                 clearOAuthPrefs()
-                navigateToOnboarding()
+                showLoading(false)
+
+                // Don't try to bring the app to the foreground here —
+                // FLAG_ACTIVITY_REORDER_TO_FRONT is blocked on Samsung.
+                // Instead, the user taps "Return to Resolve" in the Custom Tab,
+                // which triggers OAuthReturnActivity → finishes → reveals us.
+                // Our onResume() detects saved credentials and navigates forward.
             } catch (e: Exception) {
                 Log.e(TAG, "Token exchange failed", e)
                 showLoading(false)

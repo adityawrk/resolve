@@ -59,6 +59,21 @@
       android:exported="true"
       android:theme="@style/Theme.Resolve.Dark" />
 
+    <!-- OAuth return trampoline — receives intent:// URI from callback HTML,
+         Chrome closes the Custom Tab when it fires this, revealing the app. -->
+    <activity
+      android:name=".OAuthReturnActivity"
+      android:exported="true"
+      android:theme="@android:style/Theme.NoDisplay"
+      android:noHistory="true">
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="resolve" android:host="auth" />
+      </intent-filter>
+    </activity>
+
     <!-- File provider for sharing debug logs -->
     <provider
       android:name="androidx.core.content.FileProvider"

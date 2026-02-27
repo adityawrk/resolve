@@ -135,7 +135,7 @@ class AuthManager(context: Context) {
             Log.e(tag, "Encrypted prefs read failed (Samsung Keystore?): ${e.message}")
             null
         }
-        if (fromPrimary != null) return fromPrimary
+        if (fromPrimary != null) return fromPrimary.withOAuthFlag()
 
         // Fallback to backup prefs.
         val fromBackup = try {
@@ -149,7 +149,18 @@ class AuthManager(context: Context) {
             // Re-sync to primary so next load is faster.
             try { migratePrefs(from = backupPrefs, to = prefs) } catch (_: Exception) {}
         }
-        return fromBackup
+        return fromBackup?.withOAuthFlag()
+    }
+
+    /**
+     * If the user authenticated via OAuth, flag the config to use the Responses API.
+     * Codex OAuth tokens only work with /v1/responses, not /v1/chat/completions.
+     */
+    private fun LLMConfig.withOAuthFlag(): LLMConfig {
+        if (provider == LLMProvider.OPENAI && isOAuthTokenValid()) {
+            return copy(useResponsesApi = true)
+        }
+        return this
     }
 
     private fun loadLLMConfigFrom(source: SharedPreferences): LLMConfig? {

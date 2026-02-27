@@ -52,6 +52,11 @@ class LLMClient(private val config: LLMConfig) {
         userMessage: String,
         conversationMessages: List<ConversationMessage>?,
     ): AgentDecision {
+        // Route to Responses API for OAuth users (Codex tokens require /v1/responses).
+        if (config.useResponsesApi) {
+            return callOpenAIResponses(systemPrompt, userMessage, conversationMessages)
+        }
+
         val url = buildOpenAIUrl()
         Log.d(tag, "Calling: $url (model=${config.model}, provider=${config.provider})")
 
@@ -183,6 +188,204 @@ class LLMClient(private val config: LLMConfig) {
         }
 
         return AgentDecision.wait(reasoning.ifBlank { "LLM returned no tool call" })
+    }
+
+    // ── OpenAI Responses API (/v1/responses) ────────────────────────────────
+    // Used for OAuth (Codex) tokens — these only work with the Responses API.
+
+    private fun callOpenAIResponses(
+        systemPrompt: String,
+        userMessage: String,
+        conversationMessages: List<ConversationMessage>?,
+    ): AgentDecision {
+        // Codex OAuth tokens authenticate against ChatGPT's backend, not the Platform API.
+        val url = "https://chatgpt.com/backend-api/codex/responses"
+        Log.d(tag, "Calling Codex Responses API: $url (model=${config.model})")
+
+        // Build the input array (multi-turn conversation).
+        val input = JSONArray()
+
+        if (conversationMessages != null && conversationMessages.isNotEmpty()) {
+            for (msg in conversationMessages) {
+                when (msg) {
+                    is ConversationMessage.UserObservation -> {
+                        input.put(JSONObject().apply {
+                            put("role", "user")
+                            put("content", msg.content)
+                        })
+                    }
+                    is ConversationMessage.AssistantToolCall -> {
+                        // In Responses API, assistant output is represented as separate items.
+                        // If there's reasoning text, add it as a message item.
+                        if (msg.reasoning.isNotBlank()) {
+                            input.put(JSONObject().apply {
+                                put("type", "message")
+                                put("role", "assistant")
+                                put("content", JSONArray().put(JSONObject().apply {
+                                    put("type", "output_text")
+                                    put("text", msg.reasoning)
+                                }))
+                            })
+                        }
+                        // Add the function call item.
+                        input.put(JSONObject().apply {
+                            put("type", "function_call")
+                            put("call_id", msg.toolCallId)
+                            put("name", msg.toolName)
+                            put("arguments", msg.toolArguments)
+                        })
+                    }
+                    is ConversationMessage.ToolResult -> {
+                        input.put(JSONObject().apply {
+                            put("type", "function_call_output")
+                            put("call_id", msg.toolCallId)
+                            put("output", msg.result)
+                        })
+                    }
+                }
+            }
+        }
+
+        // Append current observation as the latest user message.
+        input.put(JSONObject().apply {
+            put("role", "user")
+            put("content", userMessage)
+        })
+
+        val body = JSONObject().apply {
+            put("model", config.model)
+            put("instructions", systemPrompt)
+            put("input", input)
+            put("tools", buildResponsesToolDefinitions())
+            put("tool_choice", "required")
+            put("max_output_tokens", 1024)
+            // Don't store responses server-side (stateless).
+            put("store", false)
+        }
+
+        val headers = mutableMapOf(
+            "Content-Type" to "application/json",
+            "Authorization" to "Bearer ${config.apiKey}",
+        )
+
+        // Extract chatgpt-account-id from the JWT access token.
+        // The Codex backend requires this header for OAuth sessions.
+        val accountId = extractChatGPTAccountId(config.apiKey)
+        if (accountId != null) {
+            headers["chatgpt-account-id"] = accountId
+        }
+
+        val responseJson = httpPost(url, body.toString(), headers)
+        return parseResponsesAPIResponse(responseJson)
+    }
+
+    /**
+     * Decode the JWT access token payload to extract the ChatGPT account ID.
+     * The token contains claims at "https://api.openai.com/auth" → "chatgpt_account_id".
+     */
+    private fun extractChatGPTAccountId(jwt: String): String? {
+        return try {
+            val parts = jwt.split(".")
+            if (parts.size < 2) return null
+            // Decode the payload (second segment) — no signature verification needed.
+            val payload = android.util.Base64.decode(parts[1], android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING)
+            val json = JSONObject(String(payload, Charsets.UTF_8))
+            val authClaims = json.optJSONObject("https://api.openai.com/auth")
+            authClaims?.optString("chatgpt_account_id", null)
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to extract chatgpt_account_id from JWT: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Tool definitions in Responses API format.
+     * Similar to Chat Completions but name/description/parameters are at the top level
+     * alongside "type": "function" (not nested under a "function" key).
+     */
+    private fun buildResponsesToolDefinitions(): JSONArray {
+        val chatTools = buildToolDefinitions()
+        val responsesTools = JSONArray()
+
+        for (i in 0 until chatTools.length()) {
+            val chatTool = chatTools.getJSONObject(i)
+            val fn = chatTool.getJSONObject("function")
+            responsesTools.put(JSONObject().apply {
+                put("type", "function")
+                put("name", fn.getString("name"))
+                put("description", fn.getString("description"))
+                put("parameters", fn.getJSONObject("parameters"))
+            })
+        }
+
+        return responsesTools
+    }
+
+    /**
+     * Parse the Responses API response format.
+     * Output is an array of items: "message" (text) and "function_call" (tool calls).
+     */
+    private fun parseResponsesAPIResponse(json: JSONObject): AgentDecision {
+        // Check for error responses.
+        if (json.has("error")) {
+            val error = json.opt("error")
+            val errorMsg = when (error) {
+                is JSONObject -> error.optString("message", "Unknown API error")
+                is String -> error
+                else -> "Unknown API error"
+            }
+            throw LLMException("Responses API error: $errorMsg")
+        }
+
+        val output = json.optJSONArray("output")
+        if (output == null || output.length() == 0) {
+            Log.w(tag, "No output in Responses API response")
+            return AgentDecision.wait("No response from LLM")
+        }
+
+        var reasoning = ""
+        var action: AgentAction? = null
+        var toolCallId = ""
+        var toolName = ""
+        var toolArguments = "{}"
+
+        for (i in 0 until output.length()) {
+            val item = output.getJSONObject(i)
+            when (item.optString("type", "")) {
+                "message" -> {
+                    // Extract text from message content.
+                    val content = item.optJSONArray("content")
+                    if (content != null) {
+                        for (j in 0 until content.length()) {
+                            val block = content.getJSONObject(j)
+                            if (block.optString("type") == "output_text") {
+                                reasoning = block.optString("text", "")
+                            }
+                        }
+                    }
+                }
+                "function_call" -> {
+                    toolCallId = item.optString("call_id", "call_${System.currentTimeMillis()}")
+                    toolName = item.optString("name", "")
+                    toolArguments = item.optString("arguments", "{}")
+                    action = parseToolCall(toolName, toolArguments)
+                }
+            }
+        }
+
+        return if (action != null) {
+            AgentDecision(
+                action = action,
+                reasoning = reasoning,
+                toolCallId = toolCallId,
+                toolName = toolName,
+                toolArguments = toolArguments,
+            )
+        } else {
+            // Fall back to output_text if present.
+            val outputText = json.optString("output_text", "")
+            AgentDecision.wait(reasoning.ifBlank { outputText.ifBlank { "LLM returned no tool call" } })
+        }
     }
 
     // ── Anthropic Messages API ──────────────────────────────────────────────
@@ -653,6 +856,8 @@ data class LLMConfig(
     val model: String,
     val endpoint: String? = null,
     val apiVersion: String? = null,
+    /** When true, use the OpenAI Responses API (/v1/responses) instead of Chat Completions. */
+    val useResponsesApi: Boolean = false,
 ) {
     companion object {
         /** Default config for Azure OpenAI GPT-5 Nano. */

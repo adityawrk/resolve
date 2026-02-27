@@ -82,18 +82,6 @@
           android:contentDescription="Settings" />
       </LinearLayout>
 
-      <!-- Model indicator chip -->
-      <com.google.android.material.chip.Chip
-        android:id="@+id/modelChip"
-        style="@style/Resolve.Chip.Assist"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/space_xs"
-        android:text="@string/model_chip_label"
-        android:textColor="?attr/colorOnSurfaceVariant"
-        android:clickable="false"
-        android:visibility="gone" />
-
       <!-- ===== FORM SECTION ===== -->
 
       <!-- App name (free-text input) -->
