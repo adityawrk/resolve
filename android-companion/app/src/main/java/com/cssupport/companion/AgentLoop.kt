@@ -1,6 +1,7 @@
 package com.cssupport.companion
 
 import android.util.Log
+import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -771,9 +772,9 @@ class AgentLoop(
                 SubGoalStatus.PENDING,
             ),
             SubGoal("Open Help/Support for that order", SubGoalStatus.PENDING),
-            SubGoal("Reach support chat interface", SubGoalStatus.PENDING),
-            SubGoal("Describe issue and request ${caseContext.desiredOutcome}", SubGoalStatus.PENDING),
-            SubGoal("Wait for and accept resolution", SubGoalStatus.PENDING),
+            SubGoal("Reach support chat/chatbot interface", SubGoalStatus.PENDING),
+            SubGoal("Navigate chatbot menus (click option buttons matching issue) and describe issue", SubGoalStatus.PENDING),
+            SubGoal("Request ${caseContext.desiredOutcome} and wait for confirmation", SubGoalStatus.PENDING),
         ))
     }
 
@@ -1030,24 +1031,44 @@ class AgentLoop(
         val chatIndicators = listOf(
             "send", "type a message", "type here", "write a message",
             "enter message", "message...", "type your message",
+            "type your query", "type your issue", "write here",
+            "ask a question", "enter your message", "compose",
         )
         // Chatbot screens (Dominos VCA, Swiggy, etc.) often show buttons without an input field.
         val chatbotIndicators = listOf(
             "virtual assistant", "how can i help", "select an option",
             "choose from", "hi! how can", "what can i help", "chat with us",
             "queries & feedback", "we're here to help",
+            "chat with agent", "talk to agent", "live chat",
+            "help you with", "what do you need help with",
+            "select a topic", "choose a topic", "pick a topic",
+            "what went wrong", "what is the issue",
+            "i can help", "need help with", "tell us more",
+            "how was your", "rate your experience",
+            "describe your issue", "raise a complaint",
         )
-        val supportIndicators = listOf("support", "contact", "faq", "get help", "contact us", "queries")
+        val supportIndicators = listOf(
+            "support", "contact", "faq", "get help", "contact us", "queries",
+            "help center", "help centre", "customer care", "grievance",
+        )
         val orderPageIndicators = listOf(
             "order details", "order summary", "order status", "order #",
             "order id", "help with this order", "support for this order", "report issue",
             "order history", "my orders", "your orders", "past orders",
         )
 
+        // Also detect "chat-like" screens: screens with an input field at the bottom
+        // and multiple text messages above it (typical chat layout).
+        val hasBottomInput = screenState.elements.any { el ->
+            el.isEditable && el.bounds.centerY() > (screenState.elements.maxOfOrNull { it.bounds.bottom } ?: 2400) * 3 / 4
+        }
+
         currentPhase = when {
-            // Chat phase: input field with chat indicators, OR a chatbot menu screen.
+            // Chat phase: input field with chat indicators, OR a chatbot menu screen,
+            // OR an input field at the bottom of the screen (chat layout heuristic).
             hasInputField && chatIndicators.any { allText.contains(it) } -> NavigationPhase.IN_CHAT
             chatbotIndicators.any { allText.contains(it) } -> NavigationPhase.IN_CHAT
+            hasBottomInput && screenState.elements.count { !it.text.isNullOrBlank() } > 5 -> NavigationPhase.IN_CHAT
 
             // Help/support page: "help" + at least one support-specific term.
             allText.contains("help") && supportIndicators.any { allText.contains(it) } ->
@@ -1070,8 +1091,13 @@ class AgentLoop(
 
     /**
      * Detect if the app is showing a login/sign-in screen with no path to support.
-     * Returns true only if we're confident this is a login wall (multiple login indicators
-     * and zero support-path indicators).
+     *
+     * Returns true only if we're confident this is a login wall. The detection logic
+     * is nuanced because apps like Swiggy show both "ACCOUNT" (a tab label) and
+     * "Login/Create Account" on the same screen. We handle this by:
+     * 1. Ignoring tab labels in the bottom bar (they're navigation, not content)
+     * 2. Checking for a prominent LOGIN button
+     * 3. Looking for the absence of order/help content (not just keywords)
      */
     private fun detectLoginWall(screenState: ScreenState): Boolean {
         // Only check during early navigation — once we're in support/chat, don't trigger.
@@ -1079,7 +1105,13 @@ class AgentLoop(
         // Don't trigger on the very first screen (app may still be loading).
         if (iterationCount <= 2) return false
 
-        val allText = screenState.elements.mapNotNull {
+        val screenHeight = screenState.elements.maxOfOrNull { it.bounds.bottom } ?: 2400
+        val bottomBarThreshold = screenHeight * 7 / 8
+
+        // Separate bottom-bar elements from content elements.
+        // Bottom bar labels like "ACCOUNT", "HOME" should NOT count as support-path indicators.
+        val contentElements = screenState.elements.filter { it.bounds.centerY() < bottomBarThreshold }
+        val contentText = contentElements.mapNotNull {
             (it.text ?: it.contentDescription)?.lowercase()
         }.joinToString(" ")
 
@@ -1088,15 +1120,28 @@ class AgentLoop(
             "phone number", "enter your phone", "mobile number",
             "login/create account", "register", "sign up",
         )
-        val supportPathIndicators = listOf(
-            "help", "support", "orders", "my orders", "order history",
-            "account", "profile",
+        // These are content indicators — things that appear when the user IS logged in.
+        // "account" is excluded because it's usually just a navigation label.
+        val loggedInIndicators = listOf(
+            "my orders", "your orders", "order history",
+            "past orders", "edit profile", "addresses",
+            "saved cards", "payment", "wallet balance",
         )
 
-        val loginHits = loginIndicators.count { allText.contains(it) }
-        val supportHits = supportPathIndicators.count { allText.contains(it) }
+        val loginHits = loginIndicators.count { contentText.contains(it) }
+        val loggedInHits = loggedInIndicators.count { contentText.contains(it) }
 
-        return loginHits >= 2 && supportHits == 0
+        // Also check if there's a prominent LOGIN button (clickable).
+        val hasLoginButton = contentElements.any { el ->
+            el.isClickable && (
+                el.text?.equals("LOGIN", ignoreCase = true) == true ||
+                el.text?.equals("Log in", ignoreCase = true) == true ||
+                el.text?.equals("Sign in", ignoreCase = true) == true
+            )
+        }
+
+        // Login wall: login indicators + no logged-in content + a login button.
+        return (loginHits >= 2 || (loginHits >= 1 && hasLoginButton)) && loggedInHits == 0
     }
 
     /**
@@ -1437,19 +1482,85 @@ class AgentLoop(
 
     /**
      * After typing a message, try to find and click a "Send" button.
+     *
+     * Uses a multi-strategy approach (from most reliable to least):
+     * 1. IME action (Enter key) -- works for most chat inputs with imeAction=send
+     * 2. Clickable icon buttons near the input field (send arrows, common in chatbots)
+     * 3. Text/content-description label matching (broad set of send-like labels)
+     * 4. Resource ID matching (app-specific send button IDs)
      */
     private fun trySendMessage(): Boolean {
-        // Search by text/contentDescription (findNodeByText searches both).
-        // Use exact-ish labels to avoid matching "Resend", "Send feedback", etc.
-        val sendLabels = listOf("Send", "Send message", "Submit", "send")
+        // Strategy 1: Try IME Enter action on the focused input field.
+        // Many chat apps trigger send on Enter/IME action. This is the most reliable
+        // approach because it doesn't depend on finding a separate send button.
+        // ACTION_IME_ENTER (0x01000000) requires API 30+; on 28-29 we skip to other strategies.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            val inputFields = engine.findInputFields()
+            if (inputFields.isNotEmpty()) {
+                val focused = inputFields.firstOrNull { it.isFocused } ?: inputFields.first()
+                // ACTION_IME_ENTER = 0x01000000 (API 30+)
+                @Suppress("NewApi")
+                val imeResult = focused.performAction(0x01000000) // ACTION_IME_ENTER
+                if (imeResult) {
+                    Log.d(tag, "trySendMessage: IME_ENTER succeeded")
+                    @Suppress("DEPRECATION")
+                    inputFields.forEach { try { it.recycle() } catch (_: Exception) {} }
+                    return true
+                }
+                @Suppress("DEPRECATION")
+                inputFields.forEach { try { it.recycle() } catch (_: Exception) {} }
+            }
+        }
+
+        // Strategy 2: Find a clickable icon button near the input field.
+        // Chat send buttons are often unlabeled ImageButtons/ImageViews positioned
+        // to the right of the input field. Look for clickable elements near the
+        // bottom of the screen (where chat inputs typically are).
+        try {
+            val root = SupportAccessibilityService.instance?.rootInActiveWindow
+            if (root != null) {
+                val candidates = mutableListOf<AccessibilityNodeInfo>()
+                findSendButtonCandidates(root, candidates)
+                // Sort by proximity to the right side and bottom (send buttons are bottom-right).
+                val best = candidates.maxByOrNull { node ->
+                    val bounds = android.graphics.Rect()
+                    node.getBoundsInScreen(bounds)
+                    bounds.centerX() + bounds.centerY() // Prefer bottom-right
+                }
+                if (best != null) {
+                    val result = engine.clickNode(best)
+                    @Suppress("DEPRECATION")
+                    candidates.forEach { try { it.recycle() } catch (_: Exception) {} }
+                    try { root.recycle() } catch (_: Exception) {}
+                    if (result) {
+                        Log.d(tag, "trySendMessage: icon button click succeeded")
+                        return true
+                    }
+                } else {
+                    @Suppress("DEPRECATION")
+                    candidates.forEach { try { it.recycle() } catch (_: Exception) {} }
+                    try { root.recycle() } catch (_: Exception) {}
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "trySendMessage: icon button search failed: ${e.message}")
+        }
+
+        // Strategy 3: Search by text/contentDescription with a broad set of labels.
+        val sendLabels = listOf(
+            "Send", "Send message", "Submit", "send", "SEND",
+            "Send a message", "Go", "Post", "Reply", "Done",
+        )
         for (label in sendLabels) {
             val nodes = engine.findNodesByText(label)
             // Prefer clickable nodes whose text/contentDescription is an exact match.
+            // Exclude "Send Feedback" and "Resend" which are common false positives.
             val exact = nodes.firstOrNull { n ->
                 n.isClickable && (
                     n.text?.toString().equals(label, ignoreCase = true) == true ||
                     n.contentDescription?.toString().equals(label, ignoreCase = true) == true
-                )
+                ) && n.text?.toString()?.contains("Feedback", ignoreCase = true) != true
+                  && n.text?.toString()?.startsWith("Re", ignoreCase = true) != true
             }
             if (exact != null) {
                 val result = engine.clickNode(exact)
@@ -1462,9 +1573,11 @@ class AgentLoop(
             }
         }
 
-        // Try by resource ID.
+        // Strategy 4: Try by resource ID (app-specific send button IDs).
         val sendIds = listOf(
             "send_button", "btn_send", "send", "submit",
+            "send_btn", "send_btn_img", "iv_send", "chat_send",
+            "btn_chat_send", "sendButton", "fab_send",
             "com.android.mms:id/send_button_sms",
         )
         for (id in sendIds) {
@@ -1478,6 +1591,62 @@ class AgentLoop(
         }
 
         return false
+    }
+
+    /**
+     * Find clickable icon buttons that look like "send" buttons.
+     * These are typically ImageButtons or ImageViews near the bottom of the screen,
+     * adjacent to an input field, with small dimensions (icon-sized).
+     *
+     * To avoid false positives (clicking random icons), we require:
+     * 1. The button must be on the right side of the screen (send buttons are always right)
+     * 2. The button must be in the lower third of the screen (near the chat input)
+     * 3. There must be an input field on the same screen (confirms this is a chat UI)
+     * 4. The button must be small (icon-sized, not a banner or image)
+     */
+    private fun findSendButtonCandidates(
+        node: AccessibilityNodeInfo,
+        output: MutableList<AccessibilityNodeInfo>,
+        depth: Int = 0,
+    ) {
+        if (depth > 20) return
+        val className = node.className?.toString()?.lowercase() ?: ""
+        val isImageButton = className.contains("imagebutton") || className.contains("imageview")
+        val isClickable = node.isClickable && node.isEnabled
+
+        if (isClickable && isImageButton) {
+            val bounds = android.graphics.Rect()
+            node.getBoundsInScreen(bounds)
+            val width = bounds.width()
+            val height = bounds.height()
+            // Send buttons are small icons (20-200px), in the lower third, right side.
+            if (width in 20..200 && height in 20..200
+                && bounds.centerY() > 1600 // Lower third of typical 2400px screen
+                && bounds.centerX() > 700   // Right third of typical 1080px screen
+            ) {
+                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                val text = node.text?.toString()?.lowercase() ?: ""
+                val sendHints = listOf("send", "submit", "go", "post", "reply", "enter")
+                val antiHints = listOf("attach", "photo", "camera", "mic", "voice", "emoji", "sticker")
+                val hasSendHint = sendHints.any { desc.contains(it) || text.contains(it) }
+                val hasAntiHint = antiHints.any { desc.contains(it) || text.contains(it) }
+                // Accept if: has a send-like hint, OR is unlabeled (likely a send arrow icon).
+                // Reject if: has an anti-hint (attach, camera, etc.)
+                if (!hasAntiHint && (hasSendHint || (desc.isEmpty() && text.isEmpty()))) {
+                    output.add(AccessibilityNodeInfo.obtain(node))
+                }
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = try { node.getChild(i) } catch (_: Exception) { null } ?: continue
+            try {
+                findSendButtonCandidates(child, output, depth + 1)
+            } finally {
+                @Suppress("DEPRECATION")
+                try { child.recycle() } catch (_: Exception) {}
+            }
+        }
     }
 
     /**
@@ -1608,16 +1777,21 @@ class AgentLoop(
             appendLine("5. If the agent offers a resolution: accept it if it matches desired outcome")
             appendLine("6. If the agent asks you to choose an option: click the most relevant button/chip")
             appendLine()
-            appendLine("### Chatbot menus (common in Dominos, Swiggy, etc.)")
-            appendLine("- Many apps use chatbot menus with predefined options as BUTTONS")
-            appendLine("- Click the option that best matches the issue (e.g., \"Order issue\", \"Missing items\", \"Wrong order\")")
-            appendLine("- If there's a \"Talk to agent\" or \"Chat with human\" option and the bot can't help, select it")
-            appendLine("- Do NOT type when there are clickable option buttons — click them instead")
+            appendLine("### CRITICAL: Chatbot menus (this is how most apps work)")
+            appendLine("Most customer support is through CHATBOTS with BUTTON OPTIONS, not free-text chat.")
+            appendLine("The chatbot shows predefined options as clickable buttons/chips on screen.")
+            appendLine("ALWAYS prefer clicking an option button over typing text:")
+            appendLine("- Look for buttons like: \"Order issue\", \"Missing items\", \"Wrong order\", \"Refund\", \"Cancel\"")
+            appendLine("- Look for: \"Queries & feedback\", \"Talk to agent\", \"Chat with human\", \"Help with order\"")
+            appendLine("- If you see option buttons: click_element on the closest match to your issue")
+            appendLine("- If NO option buttons match AND there is a text input: use type_message")
+            appendLine("- After clicking an option, the bot may show MORE options — keep clicking the best match")
+            appendLine("- If the bot loops or cannot help, look for \"Talk to agent\" / \"Chat with human\" option")
             appendLine()
             appendLine("### When to use each tool")
-            appendLine("- click_element: For buttons, chips, menu options shown on screen")
-            appendLine("- type_message: ONLY when there's an active text input field and no option buttons match")
-            appendLine("- wait_for_response: After EVERY message you send, to let the agent reply")
+            appendLine("- click_element: For buttons, chips, menu options, links shown on screen (PREFERRED in chatbot)")
+            appendLine("- type_message: ONLY when there's an active text input field AND no option buttons match your need")
+            appendLine("- wait_for_response: After EVERY message you send or option you click, to let the agent/bot reply")
             appendLine("- request_human_review: If asked for OTP, card digits, CAPTCHA, info you don't have, or if the app requires login")
             appendLine("- mark_resolved: ONLY when support EXPLICITLY confirms resolution (refund approved, ticket number given, etc.)")
             appendLine()
@@ -1627,9 +1801,11 @@ class AgentLoop(
             appendLine("- DISMISS popups immediately (press_back or click X/Close)")
             appendLine("- NEVER type in search bars — only chat inputs")
             appendLine("- NEVER share SSN, credit card, or passwords")
-            appendLine("- If stuck 3 turns: press_back, try different path")
-            appendLine("- ${SafetyPolicy.MAX_ITERATIONS} actions max. Be efficient.")
-            appendLine("- Heed WARNING in tool results — your action may have failed")
+            appendLine("- If stuck for 3 turns: press_back to go up one level, then try a different navigation path")
+            appendLine("- If the app requires login: call request_human_review immediately, do NOT try to navigate further")
+            appendLine("- ${SafetyPolicy.MAX_ITERATIONS} actions max. Be efficient — use the fewest clicks possible.")
+            appendLine("- Heed WARNING in tool results — if it says 'screen did not change', your click missed or the element was not interactive. Try a different element.")
+            appendLine("- After clicking a chatbot option, call wait_for_response to let the bot respond before your next action.")
         }
     }
 
@@ -1723,20 +1899,34 @@ class AgentLoop(
                     if (screenState != null) {
                         val hasInput = screenState.elements.any { it.isEditable }
                         // Count content-area buttons (exclude top/bottom nav and tiny elements).
-                        val screenHeight = screenState.elements.maxOfOrNull { it.bounds.bottom } ?: 2400
-                        val contentButtons = screenState.elements.count { el ->
+                        val sHeight = screenState.elements.maxOfOrNull { it.bounds.bottom } ?: 2400
+                        val topThreshold = sHeight / 8
+                        val bottomThreshold = sHeight * 7 / 8
+                        val contentButtons = screenState.elements.filter { el ->
                             el.isClickable
                                 && (el.text?.length ?: 0) > 2
-                                && el.bounds.centerY() in (screenHeight / 8)..(screenHeight * 7 / 8)
+                                && el.bounds.centerY() in topThreshold..bottomThreshold
                         }
-                        val hasOptionButtons = contentButtons > 2
+                        val hasOptionButtons = contentButtons.size > 2
                         if (hasOptionButtons) {
-                            appendLine(">>> The screen shows option buttons/chips. Click the most relevant one — prefer clicking over typing when options match your issue.")
+                            // List the actual button labels so the LLM can make an informed choice.
+                            val buttonLabels = contentButtons
+                                .mapNotNull { it.text ?: it.contentDescription }
+                                .filter { it.length in 3..80 }
+                                .take(8)
+                            appendLine(">>> CHATBOT OPTIONS DETECTED. Click the best match for your issue:")
+                            buttonLabels.forEach { label ->
+                                appendLine("  - \"$label\"")
+                            }
+                            appendLine(">>> Do NOT type_message when clickable options are available. Click the closest match.")
                         }
                         if (hasInput && !hasOptionButtons) {
-                            appendLine(">>> There is a text input field. Type your message, then call wait_for_response.")
+                            appendLine(">>> There is a text input field and no option buttons. Type your message describing the issue, then call wait_for_response.")
                         } else if (hasInput && hasOptionButtons) {
-                            appendLine(">>> There is also a text input field. Use it ONLY if no option buttons match your need.")
+                            appendLine(">>> There is also a text input field. Use it ONLY if NONE of the option buttons match your need.")
+                        }
+                        if (!hasInput && !hasOptionButtons) {
+                            appendLine(">>> Waiting for the chatbot to respond. If no content loads, try scroll_down or wait_for_response.")
                         }
                     }
                 }

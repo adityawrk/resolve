@@ -186,7 +186,18 @@ class AccessibilityEngine(private val service: AccessibilityService) {
         // Safety: cap recursion at 30 levels to avoid pathological trees.
         if (depth > 30) return
 
-        val element = nodeToUIElement(node)
+        var element = nodeToUIElement(node)
+
+        // Key fix: If a clickable container has no text/description but its children do,
+        // inherit the text from children. This is EXTREMELY common in Android UIs where
+        // a FrameLayout or LinearLayout wraps a TextView (e.g., Swiggy's LOGIN button).
+        // Without this, the LLM sees "[N] btn: unlabeled" and can't understand the button.
+        if (element.isClickable && element.text.isNullOrBlank() && element.contentDescription.isNullOrBlank()) {
+            val childText = collectChildText(node, maxDepth = 3)
+            if (childText.isNotBlank()) {
+                element = element.copy(text = childText)
+            }
+        }
 
         // Include this node if it carries information the agent can use.
         val isInteresting = element.text?.isNotBlank() == true
@@ -210,6 +221,35 @@ class AccessibilityEngine(private val service: AccessibilityService) {
                 safeRecycle(child)
             }
         }
+    }
+
+    /**
+     * Collect text from immediate children of a node (up to [maxDepth] levels deep).
+     * Used to give clickable containers meaningful labels from their child TextViews.
+     * Returns concatenated text from all text-bearing children, limited to a reasonable length.
+     */
+    private fun collectChildText(node: AccessibilityNodeInfo, maxDepth: Int, currentDepth: Int = 0): String {
+        if (currentDepth > maxDepth) return ""
+        val parts = mutableListOf<String>()
+        for (i in 0 until node.childCount) {
+            val child = try { node.getChild(i) } catch (_: Exception) { null } ?: continue
+            try {
+                val text = child.text?.toString()?.trim()
+                if (!text.isNullOrBlank() && text.length <= 100) {
+                    parts.add(text)
+                }
+                // Recurse deeper if this child also has no text.
+                if (text.isNullOrBlank() && child.childCount > 0) {
+                    val deeper = collectChildText(child, maxDepth, currentDepth + 1)
+                    if (deeper.isNotBlank()) parts.add(deeper)
+                }
+            } finally {
+                safeRecycle(child)
+            }
+            // Limit to avoid getting too much text from large containers.
+            if (parts.size >= 3) break
+        }
+        return parts.joinToString(" ").take(120)
     }
 
     private fun nodeToUIElement(node: AccessibilityNodeInfo): UIElement {
@@ -1113,11 +1153,17 @@ data class ScreenState(
             "order details", "track order",
             "help", "support", "contact", "get help", "report", "issue",
             "contact us", "contact store", "queries",
-            "chat", "live chat", "talk to us", "message us",
+            "chat", "live chat", "talk to us", "message us", "chat with",
             "back", "close", "cancel", "navigate up", "skip",
             "sign in", "log in", "sign out", "log out", "login",
-            "refund", "return", "complaint",
+            "refund", "return", "complaint", "grievance",
             "main menu", "sidebar", "hamburger",
+            // Chatbot option keywords -- these ARE navigation within the chat flow.
+            "missing item", "wrong item", "late delivery", "not delivered",
+            "order issue", "food quality", "damaged", "wrong order",
+            "talk to agent", "chat with human", "speak to",
+            "need help", "get refund", "cancel order",
+            "raise a complaint", "escalate", "customer care",
         )
         if (navKeywords.any { label.contains(it) }) return true
 
@@ -1126,6 +1172,14 @@ data class ScreenState(
             && (className.contains("imagebutton") || className.contains("imageview"))
             && el.isClickable
         ) return true
+
+        // Resource ID hints for known navigation elements.
+        val resId = (el.id ?: "").lowercase()
+        val navResIds = listOf(
+            "account", "profile", "orders", "help", "support", "more",
+            "bottom_bar", "tab_", "navigation", "menu", "nav_",
+        )
+        if (resId.isNotBlank() && navResIds.any { resId.contains(it) }) return true
 
         return false
     }

@@ -340,7 +340,7 @@ class LLMClient(private val config: LLMConfig) {
         return JSONArray().apply {
             put(toolDef(
                 name = "type_message",
-                description = "Type and send a message in a chat input field. Only for chat/support inputs, not search bars. Use wait_for_response after.",
+                description = "Type and send a message in a chat input field. ONLY use when no clickable option buttons match your need. Most chatbots use button menus — click those instead. Not for search bars. Use wait_for_response after.",
                 properties = JSONObject()
                     .put("text", JSONObject()
                         .put("type", "string")
@@ -384,7 +384,7 @@ class LLMClient(private val config: LLMConfig) {
 
             put(toolDef(
                 name = "wait_for_response",
-                description = "Wait 5s for screen to update. Use after sending a chat message or triggering a page load.",
+                description = "Wait 5s for screen to update. Use after sending a message, clicking a chatbot option, or triggering a page load.",
                 properties = JSONObject().put("reason", JSONObject()
                     .put("type", "string")
                     .put("description", "What you are waiting for")),
