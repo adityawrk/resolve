@@ -1,6 +1,6 @@
 # Resolve
 
-AI agent that automates customer support chats on behalf of customers. Android app using AccessibilityService for cross-app automation with on-device LLM.
+AI agent that automates customer support chats on behalf of customers. Standalone Android app using AccessibilityService for cross-app automation with on-device LLM.
 
 ## Commands
 

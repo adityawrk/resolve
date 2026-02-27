@@ -13,7 +13,7 @@ Requires: Android SDK, Java 17, Kotlin. minSdk 28, targetSdk 35.
 
 - Build: `./gradlew assembleDebug` (from `android-companion/`)
 - Test on a real Android device (Samsung recommended — they have unique Keystore behavior)
-- No emulator required, but `adb install` works for quick iteration
+- Emulator or physical device — `adb install` works for quick iteration
 
 ## Pull requests
 

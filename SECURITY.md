@@ -15,4 +15,4 @@ If private reporting is not available, avoid posting exploit details publicly an
 - PII patterns (SSN, credit card, passwords) are detected and blocked by SafetyPolicy before reaching the LLM
 - Financial actions require explicit user approval
 - The app sends zero data to any backend server — all LLM calls go directly from the device to the configured provider
-- No analytics, telemetry, or crash reporting is included
+- No analytics, telemetry, or crash reporting included

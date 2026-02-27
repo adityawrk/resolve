@@ -2,7 +2,7 @@
 globs: ["android-companion/**/*.kt", "android-companion/**/*.xml", "android-companion/**/*.gradle.kts"]
 ---
 
-# Android Companion Rules
+# Android Rules
 
 ## Build
 

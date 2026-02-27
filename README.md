@@ -19,7 +19,7 @@ You already know what you want. You just need someone to do the clicking and typ
 
 ## The Solution
 
-Resolve is an AI agent that sits between you and the support chat. It uses Android's AccessibilityService to see and interact with any app — the same API screen readers use. An LLM (GPT, Claude, or any OpenAI-compatible endpoint) decides what to click, type, and scroll based on what's on screen.
+Resolve is an AI agent that sits between you and the support chat. It uses Android's AccessibilityService to see and interact with any app — the same API screen readers use. An LLM (GPT, Claude, Gemini, DeepSeek, or any OpenAI-compatible model) decides what to click, type, and scroll based on what's on screen.
 
 ```
 You fill out one form:
@@ -93,8 +93,8 @@ The entire app runs on-device. No data leaves your phone except the LLM API call
 │  │  Agent Engine       │                                  │
 │  │                    │    ┌──────────────────────────┐  │
 │  │  AgentLoop         │───>│  LLM API (your key)     │  │
-│  │  SafetyPolicy      │<───│  Azure / OpenAI /       │  │
-│  │  AuthManager       │    │  Anthropic / Custom     │  │
+│  │  SafetyPolicy      │<───│  OpenAI / Anthropic /   │  │
+│  │  AuthManager       │    │  Gemini / DeepSeek /... │  │
 │  └────────────────────┘    └──────────────────────────┘  │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -105,7 +105,7 @@ The entire app runs on-device. No data leaves your phone except the LLM API call
 |-----------|-------------|
 | **AccessibilityEngine** | Captures the UI tree from any app. Assigns numbered IDs to every interactive element. Executes taps, types, scrolls. |
 | **AgentLoop** | The brain. Runs the observe-think-act cycle with sub-goal tracking, post-action verification, oscillation detection, and recovery mechanisms. |
-| **LLMClient** | Multi-provider HTTP client. Sends numbered screen state + conversation history, receives tool calls. Works with Azure OpenAI, OpenAI, Anthropic, or any compatible endpoint. |
+| **LLMClient** | Multi-provider HTTP client. Sends numbered screen state + conversation history, receives tool calls. Works with OpenAI, Anthropic, Google Gemini, DeepSeek, or any OpenAI-compatible endpoint. |
 | **SafetyPolicy** | Blocks PII (SSN, credit cards, passwords) from reaching the LLM. Gates financial actions behind user approval. Hard 30-iteration limit. |
 | **AuthManager** | Stores API keys in EncryptedSharedPreferences with a plain-text backup layer for Samsung Keystore reliability. |
 | **AppNavigationKnowledge** | Human-curated navigation profiles for popular apps (Dominos, Swiggy, Amazon, etc.). Tells the agent exactly how to reach the support section and what pitfalls to avoid. |
@@ -133,10 +133,11 @@ Full research notes: [`AGENT_RESEARCH.md`](android-companion/AGENT_RESEARCH.md),
 
 - Android phone (minSdk 28 / Android 9+)
 - An LLM API key from any supported provider:
-  - [OpenAI](https://platform.openai.com/api-keys) (or sign in with ChatGPT OAuth)
-  - [Azure OpenAI](https://portal.azure.com)
-  - [Anthropic](https://console.anthropic.com)
-  - Any OpenAI-compatible endpoint
+  - [OpenAI](https://platform.openai.com/api-keys) (or sign in with ChatGPT OAuth — no API key needed)
+  - [Anthropic](https://console.anthropic.com) (Claude)
+  - [Google AI Studio](https://aistudio.google.com/apikey) (Gemini)
+  - [DeepSeek](https://platform.deepseek.com)
+  - Any OpenAI-compatible endpoint (Groq, Together, Ollama, etc.)
 
 ### Install
 
@@ -170,13 +171,13 @@ The agent works with **any Android app** using generic navigation heuristics. Th
 
 | App | Category | Profile |
 |-----|----------|---------|
-| Dominos India | Food ordering | Full path + pitfall avoidance (wallet icon trap) |
-| Swiggy | Food delivery | Full path |
-| Zomato | Food delivery | Full path |
 | Amazon | E-commerce | Full path |
-| Flipkart | E-commerce | Full path |
 | Uber | Ride-hailing | Full path |
-| Ola | Ride-hailing | Full path |
+| Flipkart | E-commerce (India) | Full path |
+| Swiggy | Food delivery (India) | Full path |
+| Zomato | Food delivery (India) | Full path |
+| Dominos India | Food ordering (India) | Full path + pitfall avoidance |
+| Ola | Ride-hailing (India) | Full path |
 
 Adding a new app profile is one of the easiest ways to contribute — see [Contributing](#contributing).
 
@@ -193,14 +194,15 @@ Resolve takes safety seriously. These layers are load-bearing and cannot be bypa
 
 ## LLM Providers
 
-| Provider | Auth Method | Notes |
-|----------|-------------|-------|
-| **OpenAI** | API key or ChatGPT OAuth | OAuth uses the Codex public client ID |
-| **Azure OpenAI** | API key + endpoint | Auto-strips AI Foundry `/api/projects/` path |
-| **Anthropic** | API key | Claude models with token-efficient tool use |
-| **Custom** | API key + endpoint | Any OpenAI-compatible API |
+Resolve works with any LLM that supports tool calling via an OpenAI-compatible API:
 
-The app defaults to `gpt-5-mini` and auto-migrates deprecated model names (gpt-4o, gpt-4o-mini, etc.) on each run.
+| Provider | Auth Method | Models |
+|----------|-------------|--------|
+| **OpenAI** | API key or ChatGPT OAuth | GPT-4o, GPT-4o-mini, o1, o3-mini |
+| **Anthropic** | API key | Claude Sonnet, Claude Haiku |
+| **Google** | API key (via OpenAI-compatible endpoint) | Gemini 2.0 Flash, Gemini Pro |
+| **DeepSeek** | API key | DeepSeek-V3, DeepSeek-R1 |
+| **Custom** | API key + endpoint | Groq, Together, Ollama, any OpenAI-compatible API |
 
 ## Contributing
 
