@@ -278,6 +278,8 @@ class CompanionAgentService : Service() {
         currentAgentJob = null
         running = false
         updateNotification("Agent idle")
+        // Stop the foreground service so the persistent notification goes away.
+        stopSelf()
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────

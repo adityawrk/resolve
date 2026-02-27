@@ -203,7 +203,7 @@ class AccessibilityEngine(private val service: AccessibilityService) {
         // Recurse into children.
         val childCount = node.childCount
         for (i in 0 until childCount) {
-            val child = node.getChild(i) ?: continue
+            val child = try { node.getChild(i) } catch (_: Exception) { null } ?: continue
             try {
                 parseNodeTree(child, output, depth + 1)
             } finally {
@@ -278,7 +278,10 @@ class AccessibilityEngine(private val service: AccessibilityService) {
         val root = service.rootInActiveWindow ?: return null
         return try {
             val found = root.findAccessibilityNodeInfosByViewId(viewId)
-            found?.firstOrNull()
+            val result = found?.firstOrNull()
+            // Recycle any extra results to prevent binder leaks.
+            found?.drop(1)?.forEach { safeRecycle(it) }
+            result
         } finally {
             safeRecycle(root)
         }
@@ -381,18 +384,29 @@ class AccessibilityEngine(private val service: AccessibilityService) {
             return false
         }
 
-        // Use the element's bounds to find the matching live node and click it.
-        // The UIElement was created from an already-recycled node, so we find a fresh one
-        // by searching for text/contentDescription match within similar bounds.
+        // Find the live node closest to the expected bounds.
+        // Multiple elements can share the same label ("Order #28", "Help", etc.),
+        // so we disambiguate by picking the node whose bounds center is nearest
+        // to the target element's stored bounds.
         val label = targetElement.text ?: targetElement.contentDescription
         if (label != null) {
-            val node = findNodeByText(label)
-            if (node != null) {
-                return try {
-                    clickNode(node)
-                } finally {
-                    safeRecycle(node)
+            val nodes = findNodesByText(label)
+            if (nodes.isNotEmpty()) {
+                val targetCx = targetElement.bounds.centerX()
+                val targetCy = targetElement.bounds.centerY()
+                val best = nodes.minByOrNull { node ->
+                    val b = Rect()
+                    node.getBoundsInScreen(b)
+                    val dx = b.centerX() - targetCx
+                    val dy = b.centerY() - targetCy
+                    dx * dx + dy * dy
                 }
+                if (best != null) {
+                    val result = clickNode(best)
+                    nodes.forEach { safeRecycle(it) }
+                    return result
+                }
+                nodes.forEach { safeRecycle(it) }
             }
         }
 

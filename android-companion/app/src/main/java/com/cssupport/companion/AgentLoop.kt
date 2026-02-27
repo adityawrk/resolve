@@ -79,6 +79,8 @@ class AgentLoop(
     // -- State tracking -------------------------------------------------------
 
     private var iterationCount = 0
+    /** Total loop iterations including non-counted ones (own-app, wrong-app, plan, etc.). */
+    private var totalLoopIterations = 0
     private var consecutiveDuplicates = 0
     private var lastActionSignature = ""
     private var llmRetryCount = 0
@@ -166,6 +168,9 @@ class AgentLoop(
 
         /** Max consecutive turns in a non-target app before auto-correcting. */
         const val MAX_WRONG_APP_TURNS = 2
+
+        /** Hard ceiling on total loop iterations (including non-counted ones) to prevent infinite loops. */
+        const val MAX_TOTAL_LOOP_ITERATIONS = 100
     }
 
     @Volatile
@@ -248,6 +253,14 @@ class AgentLoop(
 
         while (iterationCount < SafetyPolicy.MAX_ITERATIONS) {
             currentCoroutineContext().ensureActive()
+            totalLoopIterations++
+
+            // Hard ceiling: prevent infinite loops from iterationCount being decremented too often.
+            if (totalLoopIterations > MAX_TOTAL_LOOP_ITERATIONS) {
+                return AgentResult.Failed(
+                    reason = "Agent exceeded maximum total iterations ($MAX_TOTAL_LOOP_ITERATIONS). Possible loop detected.",
+                )
+            }
 
             // Handle pause state.
             while (paused) {
@@ -269,7 +282,8 @@ class AgentLoop(
                 waitForMeaningfulScreen()
             } else if (lastVerifiedScreen != null) {
                 // Reuse the screen captured during verification (pipelining).
-                val reused = lastVerifiedScreen!!
+                val reused = lastVerifiedScreen
+                    ?: engine.waitForStableScreen(maxWaitMs = 3000, pollIntervalMs = 300)
                 lastVerifiedScreen = null
                 reused
             } else {
@@ -285,7 +299,7 @@ class AgentLoop(
             // Skip if we're looking at our own app -- try to launch target and wait.
             if (screenState.packageName == OWN_PACKAGE) {
                 Log.d(tag, "Own app is in foreground, trying to launch target app...")
-                iterationCount-- // Don't count this as a real iteration.
+                iterationCount = maxOf(iterationCount - 1, 0)
 
                 if (launchTargetApp != null) {
                     launchTargetApp.invoke()
@@ -350,7 +364,7 @@ class AgentLoop(
                     try { engine.pressBack() } catch (_: Exception) {}
                     delay(500)
                 }
-                iterationCount-- // Don't count wrong-app turns.
+                iterationCount = maxOf(iterationCount - 1, 0) // Don't count wrong-app turns.
                 continue
             } else {
                 wrongAppTurnCount = 0
@@ -461,8 +475,13 @@ class AgentLoop(
             ))
 
             // Step 3c: Handle "no tool call" responses efficiently.
-            val isNoToolCallWait = decision.action is AgentAction.Wait
-                && decision.action.reason.contains("no tool call", ignoreCase = true)
+            val waitReason = (decision.action as? AgentAction.Wait)?.reason ?: ""
+            val isNoToolCallWait = decision.action is AgentAction.Wait && (
+                waitReason.contains("no tool call", ignoreCase = true) ||
+                waitReason.contains("Failed to parse", ignoreCase = true) ||
+                waitReason.contains("No response from LLM", ignoreCase = true) ||
+                waitReason.contains("no tool use", ignoreCase = true)
+            )
             if (isNoToolCallWait) {
                 consecutiveNoToolCalls++
                 if (consecutiveNoToolCalls in 2..4) {
@@ -473,7 +492,7 @@ class AgentLoop(
                     conversationHistory.add(ConversationMessage.UserObservation(content = forceHint))
                     estimatedTokens += forceHint.length / 4
                     // Don't count as a full iteration — give the LLM another chance.
-                    iterationCount--
+                    iterationCount = maxOf(iterationCount - 1, 0)
                     delay(500)
                     continue
                 }
@@ -516,7 +535,7 @@ class AgentLoop(
                     userMessage, decision,
                     "Plan recorded. Now execute the next step — call an action tool.",
                 )
-                iterationCount-- // Don't count plan updates as iterations.
+                iterationCount = maxOf(iterationCount - 1, 0) // Don't count plan updates as iterations.
                 delay(200) // Small delay before next LLM call.
                 continue
             }
@@ -556,8 +575,16 @@ class AgentLoop(
             while (recentActionDescs.size > 10) recentActionDescs.removeAt(0)
 
             // If the action is a click on a banned element (matched by label), skip it.
+            // The LLM usually sends elementId (not label), so resolve the label from screenState.
             val clickAction = decision.action as? AgentAction.ClickElement
-            val clickLabel = clickAction?.label?.lowercase()
+            val clickLabel = if (clickAction != null) {
+                val fromId = clickAction.elementId?.let { id ->
+                    screenState.getElementById(id)?.let { el ->
+                        (el.text ?: el.contentDescription)?.lowercase()
+                    }
+                }
+                fromId ?: clickAction.label?.lowercase()
+            } else null
             val isBanned = clickLabel != null && bannedElementLabels.any { clickLabel.contains(it) || it.contains(clickLabel) }
             if (isBanned) {
                 Log.w(tag, "[$iterationCount] Skipping click on banned element '$clickLabel'")
@@ -818,14 +845,24 @@ class AgentLoop(
      *   (the LLM needs the full action trace)
      */
     private fun applyObservationMasking() {
-        // Each turn is 3 messages: UserObservation, AssistantToolCall, ToolResult.
-        val turnCount = conversationHistory.size / 3
+        // Count actual turns by AssistantToolCall (injected hints break the 3-per-turn assumption).
+        val turnCount = conversationHistory.count { it is ConversationMessage.AssistantToolCall }
         if (turnCount <= OBSERVATION_MASK_KEEP_RECENT) return
 
-        val turnsToMask = turnCount - OBSERVATION_MASK_KEEP_RECENT
-        val messagesToScan = turnsToMask * 3
+        // Find the index of the Nth-from-last AssistantToolCall to determine the mask boundary.
+        var toolCallsSeen = 0
+        var maskBoundary = conversationHistory.size
+        for (i in conversationHistory.lastIndex downTo 0) {
+            if (conversationHistory[i] is ConversationMessage.AssistantToolCall) {
+                toolCallsSeen++
+                if (toolCallsSeen >= OBSERVATION_MASK_KEEP_RECENT) {
+                    maskBoundary = i
+                    break
+                }
+            }
+        }
 
-        for (i in maskedUpToIndex until messagesToScan.coerceAtMost(conversationHistory.size)) {
+        for (i in maskedUpToIndex until maskBoundary.coerceAtMost(conversationHistory.size)) {
             val msg = conversationHistory[i]
             if (msg is ConversationMessage.UserObservation && !msg.content.startsWith("[Screen:")) {
                 // Replace verbose observation with a compact summary.
@@ -834,7 +871,7 @@ class AgentLoop(
             }
         }
 
-        maskedUpToIndex = messagesToScan
+        maskedUpToIndex = maskBoundary
 
         // Re-estimate tokens after masking.
         estimatedTokens = conversationHistory.sumOf { msg ->
@@ -970,14 +1007,27 @@ class AgentLoop(
 
         // Count how many distinct indicators are present for each phase.
         // This prevents false triggers from ubiquitous words like "order" or "track".
-        val chatIndicators = listOf("send", "type a message", "type here", "write a message")
+        val chatIndicators = listOf(
+            "send", "type a message", "type here", "write a message",
+            "enter message", "message...", "type your message",
+        )
+        // Chatbot screens (Dominos VCA, Swiggy, etc.) often show buttons without an input field.
+        val chatbotIndicators = listOf(
+            "virtual assistant", "how can i help", "select an option",
+            "choose from", "hi! how can", "what can i help", "chat with us",
+            "queries & feedback", "we're here to help",
+        )
         val supportIndicators = listOf("support", "contact", "faq", "get help", "contact us", "queries")
-        val orderPageIndicators = listOf("order details", "order summary", "order status", "order #",
-            "order id", "help with this order", "support for this order", "report issue")
+        val orderPageIndicators = listOf(
+            "order details", "order summary", "order status", "order #",
+            "order id", "help with this order", "support for this order", "report issue",
+            "order history", "my orders", "your orders", "past orders",
+        )
 
         currentPhase = when {
-            // Chat phase: there's an input field and the screen looks like a conversation.
+            // Chat phase: input field with chat indicators, OR a chatbot menu screen.
             hasInputField && chatIndicators.any { allText.contains(it) } -> NavigationPhase.IN_CHAT
+            chatbotIndicators.any { allText.contains(it) } -> NavigationPhase.IN_CHAT
 
             // Help/support page: "help" + at least one support-specific term.
             allText.contains("help") && supportIndicators.any { allText.contains(it) } ->
@@ -1128,12 +1178,10 @@ class AgentLoop(
             }
 
             is AgentAction.TypeMessage -> {
-                // Minitap's key insight: read back the field content and verify.
-                val fieldText = if (action.elementId != null) {
-                    engine.readFieldTextByIndex(action.elementId, postState)
-                } else {
-                    engine.readFirstFieldText()
-                }
+                // Read back the field content to verify text was entered.
+                // Always use readFirstFieldText — the elementId maps to preActionState's
+                // index which may not correspond to the same element in postState.
+                val fieldText = engine.readFirstFieldText()
 
                 if (fieldText != null && fieldText.contains(action.text.take(20))) {
                     VerificationResult.Success("Text entered successfully.")
@@ -1221,7 +1269,10 @@ class AgentLoop(
                 }
 
                 delay(300)
-                trySendMessage()
+                val sent = trySendMessage()
+                if (!sent) {
+                    Log.w(tag, "trySendMessage: send button not found, text was typed but may not be sent")
+                }
                 ActionResult.Success
             }
 
@@ -1337,24 +1388,36 @@ class AgentLoop(
      * After typing a message, try to find and click a "Send" button.
      */
     private fun trySendMessage(): Boolean {
-        val sendLabels = listOf("Send", "send", "Submit", "submit")
+        // Search by text/contentDescription (findNodeByText searches both).
+        // Use exact-ish labels to avoid matching "Resend", "Send feedback", etc.
+        val sendLabels = listOf("Send", "Send message", "Submit", "send")
         for (label in sendLabels) {
-            val node = engine.findNodeByText(label)
-            if (node != null) {
-                val result = engine.clickNode(node)
+            val nodes = engine.findNodesByText(label)
+            // Prefer clickable nodes whose text/contentDescription is an exact match.
+            val exact = nodes.firstOrNull { n ->
+                n.isClickable && (
+                    n.text?.toString().equals(label, ignoreCase = true) == true ||
+                    n.contentDescription?.toString().equals(label, ignoreCase = true) == true
+                )
+            }
+            if (exact != null) {
+                val result = engine.clickNode(exact)
                 @Suppress("DEPRECATION")
-                try { node.recycle() } catch (_: Exception) {}
+                nodes.forEach { try { it.recycle() } catch (_: Exception) {} }
                 if (result) return true
+            } else {
+                @Suppress("DEPRECATION")
+                nodes.forEach { try { it.recycle() } catch (_: Exception) {} }
             }
         }
 
+        // Try by resource ID.
         val sendIds = listOf(
             "send_button", "btn_send", "send", "submit",
             "com.android.mms:id/send_button_sms",
         )
         for (id in sendIds) {
             val node = engine.findNodeById(id)
-                ?: engine.findNodeById("*:id/$id")
             if (node != null) {
                 val result = engine.clickNode(node)
                 @Suppress("DEPRECATION")
@@ -1431,6 +1494,9 @@ class AgentLoop(
 
             // -- Case context --
             appendLine("## Issue")
+            if (caseContext.customerName.isNotBlank() && caseContext.customerName != "Customer") {
+                appendLine("Customer name: ${caseContext.customerName}")
+            }
             appendLine(caseContext.issue)
             appendLine("Desired outcome: ${caseContext.desiredOutcome}")
             if (!caseContext.orderId.isNullOrBlank()) {
@@ -1605,13 +1671,21 @@ class AgentLoop(
                     // Give context-specific guidance based on what's on screen.
                     if (screenState != null) {
                         val hasInput = screenState.elements.any { it.isEditable }
-                        val hasOptionButtons = screenState.elements.count {
-                            it.isClickable && (it.text?.length ?: 0) > 2
-                        } > 3 // Multiple clickable text elements = likely option menu
-                        if (hasOptionButtons && !hasInput) {
-                            appendLine(">>> The screen shows option buttons/chips. Click the most relevant one — do NOT try to type.")
-                        } else if (hasInput) {
+                        // Count content-area buttons (exclude top/bottom nav and tiny elements).
+                        val screenHeight = screenState.elements.maxOfOrNull { it.bounds.bottom } ?: 2400
+                        val contentButtons = screenState.elements.count { el ->
+                            el.isClickable
+                                && (el.text?.length ?: 0) > 2
+                                && el.bounds.centerY() in (screenHeight / 8)..(screenHeight * 7 / 8)
+                        }
+                        val hasOptionButtons = contentButtons > 2
+                        if (hasOptionButtons) {
+                            appendLine(">>> The screen shows option buttons/chips. Click the most relevant one — prefer clicking over typing when options match your issue.")
+                        }
+                        if (hasInput && !hasOptionButtons) {
                             appendLine(">>> There is a text input field. Type your message, then call wait_for_response.")
+                        } else if (hasInput && hasOptionButtons) {
+                            appendLine(">>> There is also a text input field. Use it ONLY if no option buttons match your need.")
                         }
                     }
                 }

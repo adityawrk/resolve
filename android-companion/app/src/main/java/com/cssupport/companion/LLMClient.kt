@@ -159,7 +159,8 @@ class LLMClient(private val config: LLMConfig) {
             return AgentDecision.wait("No response from LLM")
         }
 
-        val message = choices.getJSONObject(0).getJSONObject("message")
+        val message = choices.optJSONObject(0)?.optJSONObject("message")
+            ?: return AgentDecision.wait("Malformed LLM response (no message)")
         val reasoning = message.optString("content", "")
 
         val toolCalls = message.optJSONArray("tool_calls")
@@ -308,12 +309,12 @@ class LLMClient(private val config: LLMConfig) {
 
         for (i in 0 until content.length()) {
             val block = content.getJSONObject(i)
-            when (block.getString("type")) {
-                "text" -> reasoning = block.getString("text")
+            when (block.optString("type", "")) {
+                "text" -> reasoning = block.optString("text", "")
                 "tool_use" -> {
                     toolCallId = block.optString("id", "call_${System.currentTimeMillis()}")
-                    toolName = block.getString("name")
-                    val input = block.getJSONObject("input")
+                    toolName = block.optString("name", "")
+                    val input = block.optJSONObject("input") ?: JSONObject()
                     toolArguments = input.toString()
                     action = parseToolCallFromJson(toolName, input)
                 }
@@ -510,7 +511,7 @@ class LLMClient(private val config: LLMConfig) {
     private fun parseToolCallFromJson(name: String, input: JSONObject): AgentAction {
         return when (name) {
             "type_message" -> AgentAction.TypeMessage(
-                text = input.getString("text"),
+                text = input.optString("text", ""),
                 elementId = parseElementId(input, "elementId"),
             )
             "click_element" -> AgentAction.ClickElement(
@@ -540,12 +541,12 @@ class LLMClient(private val config: LLMConfig) {
                 reason = input.optString("reason", ""),
             )
             "request_human_review" -> AgentAction.RequestHumanReview(
-                reason = input.getString("reason"),
+                reason = input.optString("reason", "Human review requested"),
                 needsInput = input.optBoolean("needsInput", false),
                 inputPrompt = if (input.has("inputPrompt")) input.optString("inputPrompt", "") else null,
             )
             "mark_resolved" -> AgentAction.MarkResolved(
-                summary = input.getString("summary"),
+                summary = input.optString("summary", "Issue resolved"),
             )
             "update_plan" -> {
                 val explanation = input.optString("explanation", "")
@@ -610,7 +611,7 @@ class LLMClient(private val config: LLMConfig) {
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             if (stream == null) {
-                return JSONObject()
+                throw LLMException("HTTP $code: empty response (no body)")
             }
             val text = BufferedReader(InputStreamReader(stream)).use { reader ->
                 reader.readText()
