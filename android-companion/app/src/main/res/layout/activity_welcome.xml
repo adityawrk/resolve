@@ -161,16 +161,5 @@
       app:iconPadding="12dp"
       app:iconSize="20dp" />
 
-    <!-- Terms text at bottom -->
-    <TextView
-      android:layout_width="wrap_content"
-      android:layout_height="wrap_content"
-      android:layout_marginTop="@dimen/space_xl"
-      android:text="By continuing, you agree to the Terms of Service"
-      android:textAppearance="?attr/textAppearanceLabelSmall"
-      android:textColor="?attr/colorOnSurfaceVariant"
-      android:alpha="0.7"
-      android:textAlignment="center" />
-
   </LinearLayout>
 </FrameLayout>

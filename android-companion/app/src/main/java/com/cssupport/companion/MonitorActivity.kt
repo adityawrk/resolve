@@ -49,6 +49,7 @@ class MonitorActivity : AppCompatActivity() {
 
         try {
             bindViews()
+            if (!BuildConfig.DEBUG) btnShareLog.visibility = View.GONE
             setupRecycler()
             setupControls()
             observeLogs()
@@ -67,8 +68,10 @@ class MonitorActivity : AppCompatActivity() {
                     MaterialAlertDialogBuilder(this@MonitorActivity)
                         .setTitle(getString(R.string.monitor_back_title))
                         .setMessage(getString(R.string.monitor_back_message))
-                        .setPositiveButton(getString(R.string.monitor_back_keep)) { dialog, _ ->
+                        .setNeutralButton(getString(R.string.monitor_back_stay)) { dialog, _ ->
                             dialog.dismiss()
+                        }
+                        .setPositiveButton(getString(R.string.monitor_back_leave)) { _, _ ->
                             finish()
                         }
                         .setNegativeButton(getString(R.string.monitor_back_stop)) { _, _ ->

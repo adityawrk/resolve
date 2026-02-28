@@ -79,7 +79,7 @@ class OnboardingActivity : AppCompatActivity() {
                     startActivity(Intent(this, MainActivity::class.java))
                     finish()
                 }
-            }, 800)
+            }, 300)
         }
     }
 

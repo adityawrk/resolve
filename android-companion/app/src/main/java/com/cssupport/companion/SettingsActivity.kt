@@ -51,6 +51,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnConfigureApi: MaterialButton
     private lateinit var apiKeySection: LinearLayout
     private lateinit var providerDropdown: MaterialAutoCompleteTextView
+    private lateinit var endpointLayout: com.google.android.material.textfield.TextInputLayout
     private lateinit var apiEndpointInput: TextInputEditText
     private lateinit var apiKeyInput: TextInputEditText
     private lateinit var apiModelInput: TextInputEditText
@@ -148,6 +149,7 @@ class SettingsActivity : AppCompatActivity() {
         btnConfigureApi = findViewById(R.id.btnConfigureApi)
         apiKeySection = findViewById(R.id.apiKeySection)
         providerDropdown = findViewById(R.id.providerDropdown)
+        endpointLayout = findViewById(R.id.endpointLayout)
         apiEndpointInput = findViewById(R.id.apiEndpointInput)
         apiKeyInput = findViewById(R.id.apiKeyInput)
         apiModelInput = findViewById(R.id.apiModelInput)
@@ -164,6 +166,25 @@ class SettingsActivity : AppCompatActivity() {
         val providers = resources.getStringArray(R.array.settings_provider_list)
         val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, providers)
         providerDropdown.setAdapter(adapter)
+
+        providerDropdown.setOnItemClickListener { _, _, position, _ ->
+            val selected = providers[position]
+            val needsEndpoint = selected == "Azure OpenAI" || selected == "Custom"
+            endpointLayout.visibility = if (needsEndpoint) View.VISIBLE else View.GONE
+
+            // Pre-fill default model when model field is empty.
+            if (apiModelInput.text.isNullOrBlank()) {
+                val defaultModel = when (selected) {
+                    "Azure OpenAI" -> "gpt-5-mini"
+                    "OpenAI" -> "gpt-5-mini"
+                    "Anthropic" -> "claude-sonnet-4-6"
+                    else -> ""
+                }
+                if (defaultModel.isNotEmpty()) {
+                    apiModelInput.setText(defaultModel)
+                }
+            }
+        }
     }
 
     private fun setupListeners() {
@@ -358,7 +379,7 @@ class SettingsActivity : AppCompatActivity() {
         // ── OAuth card ──
         oauthStatusDot.setBackgroundResource(
             if (oauthConnected) R.drawable.bg_status_dot_success
-            else R.drawable.bg_status_dot_error,
+            else R.drawable.bg_status_dot_neutral,
         )
         oauthStatusText.text = if (oauthConnected) {
             getString(R.string.settings_oauth_connected)
@@ -377,7 +398,7 @@ class SettingsActivity : AppCompatActivity() {
         // ── API Key card ──
         apiKeyStatusDot.setBackgroundResource(
             if (apiKeyConfigured) R.drawable.bg_status_dot_success
-            else R.drawable.bg_status_dot_error,
+            else R.drawable.bg_status_dot_neutral,
         )
         apiKeyStatusText.text = if (apiKeyConfigured) {
             when (config!!.provider) {
@@ -406,6 +427,10 @@ class SettingsActivity : AppCompatActivity() {
             apiEndpointInput.setText(config.endpoint ?: "")
             apiModelInput.setText(config.model)
 
+            // Show/hide endpoint based on provider.
+            val needsEndpoint = config.provider == LLMProvider.AZURE_OPENAI || config.provider == LLMProvider.CUSTOM
+            endpointLayout.visibility = if (needsEndpoint) View.VISIBLE else View.GONE
+
             val savedKey = authManager.getSavedApiKey()
             if (savedKey != null && savedKey.length >= 4) {
                 val lastFour = savedKey.takeLast(4)
@@ -422,6 +447,8 @@ class SettingsActivity : AppCompatActivity() {
         if (!oauthConnected && !apiKeyConfigured) {
             apiKeySection.visibility = View.VISIBLE
             btnConfigureApi.text = getString(R.string.settings_hide_form)
+            // Hide endpoint until a provider that needs it is selected.
+            endpointLayout.visibility = View.GONE
         }
 
         refreshAccessibilityStatus()
@@ -439,7 +466,7 @@ class SettingsActivity : AppCompatActivity() {
         val running = SupportAccessibilityService.isRunning()
         accessibilityStatusDot.setBackgroundResource(
             if (running) R.drawable.bg_status_dot_success
-            else R.drawable.bg_status_dot_error,
+            else R.drawable.bg_status_dot_neutral,
         )
         accessibilityStatusText.text = if (running) {
             getString(R.string.settings_accessibility_enabled)

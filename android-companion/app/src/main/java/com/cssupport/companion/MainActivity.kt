@@ -280,7 +280,7 @@ class MainActivity : AppCompatActivity() {
                 android.util.Log.e("MainActivity", "Failed to start agent service", e)
                 Snackbar.make(
                     btnResolveIt,
-                    "Failed to start agent: ${e.message}",
+                    "Something went wrong. Please try again.",
                     Snackbar.LENGTH_LONG,
                 ).show()
                 return
@@ -306,7 +306,7 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             android.util.Log.e("MainActivity", "resolveIt crashed", e)
-            Snackbar.make(btnResolveIt, "Error: ${e.message}", Snackbar.LENGTH_LONG).show()
+            Snackbar.make(btnResolveIt, "Something went wrong. Please try again.", Snackbar.LENGTH_LONG).show()
         }
     }
 

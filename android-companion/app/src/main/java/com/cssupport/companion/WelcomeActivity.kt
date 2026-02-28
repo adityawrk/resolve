@@ -11,7 +11,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -42,28 +41,13 @@ class WelcomeActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Show last crash info if available (helps debug issues on user's device).
-        val lastCrash = CrashLogger.getLastCrash(this)
-        if (lastCrash != null) {
-            CrashLogger.clearLastCrash(this)
-            MaterialAlertDialogBuilder(this)
-                .setTitle("Crash Report")
-                .setMessage(lastCrash.take(2000))
-                .setPositiveButton("OK", null)
-                .setNeutralButton("Copy") { _, _ ->
-                    val clipboard = getSystemService(android.content.ClipboardManager::class.java)
-                    clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("crash", lastCrash))
-                    Toast.makeText(this, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                }
-                .show()
-        }
-
         authManager = AuthManager(this)
 
         // Detect expired OAuth tokens and clear them so the user re-authenticates.
         if (authManager.loadOAuthToken() != null && !authManager.isOAuthTokenValid()) {
             authManager.clearOAuthTokens()
             authManager.clearLLMCredentials()
+            Toast.makeText(this, "Your session expired. Please sign in again.", Toast.LENGTH_LONG).show()
         }
 
         // Skip to main screen if already configured.

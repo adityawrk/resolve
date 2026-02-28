@@ -298,42 +298,6 @@
           android:textSize="16sp" />
       </com.google.android.material.textfield.TextInputLayout>
 
-      <!-- Previous cases section -->
-      <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/space_2xl"
-        android:text="@string/section_previous_cases"
-        android:textAppearance="?attr/textAppearanceTitleSmall"
-        android:textColor="?attr/colorOnSurface" />
-
-      <!-- Previous case cards container (populated dynamically via RecyclerView) -->
-      <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/previousCasesRecycler"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/element_gap"
-        android:nestedScrollingEnabled="false"
-        android:visibility="gone" />
-
-      <!-- Empty state -->
-      <TextView
-        android:id="@+id/emptyCasesText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/element_gap"
-        android:paddingVertical="@dimen/space_xl"
-        android:text="@string/no_previous_cases"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
-        android:textColor="?attr/colorOnSurfaceVariant"
-        android:textAlignment="center"
-        android:alpha="0.7" />
-
-      <!-- Bottom spacer for scroll clearance -->
-      <View
-        android:layout_width="0dp"
-        android:layout_height="@dimen/space_lg" />
-
     </LinearLayout>
   </androidx.core.widget.NestedScrollView>
 

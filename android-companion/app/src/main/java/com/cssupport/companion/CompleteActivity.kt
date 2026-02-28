@@ -92,7 +92,7 @@ class CompleteActivity : AppCompatActivity() {
         // Share button.
         findViewById<MaterialButton>(R.id.btnShare).setOnClickListener {
             val shareText = buildString {
-                appendLine("Resolve got my issue sorted!")
+                appendLine("Issue resolved with $targetApp")
                 appendLine()
                 appendLine("App: $targetApp")
                 appendLine("Outcome: $outcome")

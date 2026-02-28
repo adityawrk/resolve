@@ -228,6 +228,7 @@
 
             <!-- Endpoint -->
             <com.google.android.material.textfield.TextInputLayout
+              android:id="@+id/endpointLayout"
               style="@style/Resolve.TextInput"
               android:layout_width="match_parent"
               android:layout_height="wrap_content"
@@ -391,42 +392,7 @@
           android:layout_height="wrap_content" />
       </LinearLayout>
 
-      <!-- ===== SECTION 4: Case History ===== -->
-      <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginVertical="@dimen/space_base"
-        android:background="?attr/colorOutlineVariant"
-        android:alpha="0.2" />
-
-      <LinearLayout
-        android:id="@+id/caseHistoryRow"
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:clickable="true"
-        android:focusable="true"
-        android:background="?attr/selectableItemBackground">
-
-        <TextView
-          android:layout_width="0dp"
-          android:layout_height="wrap_content"
-          android:layout_weight="1"
-          android:text="@string/settings_case_history"
-          android:textAppearance="?attr/textAppearanceBodyLarge"
-          android:textColor="?attr/colorOnSurface" />
-
-        <ImageView
-          android:layout_width="24dp"
-          android:layout_height="24dp"
-          android:src="@drawable/ic_expand_more"
-          android:rotation="-90"
-          android:contentDescription="Navigate"
-          android:alpha="0.5" />
-      </LinearLayout>
-
-      <!-- ===== SECTION 5: About ===== -->
+      <!-- ===== SECTION 4: About ===== -->
       <View
         android:layout_width="match_parent"
         android:layout_height="1dp"

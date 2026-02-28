@@ -2,7 +2,7 @@
 <resources>
   <string name="app_name">Resolve</string>
   <string name="agent_notification_channel">Resolve Agent</string>
-  <string name="agent_notification_text">Polling for support commands</string>
+  <string name="agent_notification_text">Working on your issue</string>
   <string name="notification_tap_progress">Tap to see progress</string>
   <string name="notification_view_progress">View Progress</string>
   <string name="notification_stop">Stop</string>
@@ -81,7 +81,8 @@
   <string name="monitor_btn_stop">Stop</string>
   <string name="monitor_back_title">Agent is still working</string>
   <string name="monitor_back_message">The agent will keep working in the background. You can return from the notification.</string>
-  <string name="monitor_back_keep">Keep Running</string>
+  <string name="monitor_back_stay">Stay</string>
+  <string name="monitor_back_leave">Leave</string>
   <string name="monitor_back_stop">Stop Agent</string>
   <string name="monitor_empty_loading">Starting agent...</string>
   <string name="approval_title">Agent needs your approval</string>
