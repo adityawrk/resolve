@@ -140,6 +140,7 @@ Update these files in order:
 
 ## Key Conventions
 
+- **Never add `Co-Authored-By` lines to commits.** All commits should be attributed solely to the user.
 - Android minSdk 28, targetSdk 35, Kotlin, Java 17, View system (no Compose)
 - Android credentials stored via `AuthManager` using EncryptedSharedPreferences — never write to SharedPreferences directly for secrets
 - `AgentLogStore` drives the MonitorActivity feed via `StateFlow` — always call `AgentLogStore.log()` for user-visible events
